@@ -1,7 +1,8 @@
 "use client";
 
 import { ChevronRight } from "lucide-react";
-import { AMATEUR_COUNTRIES, getAmateurAffiliation } from "@/lib/amateur";
+import { AMATEUR_COUNTRIES } from "@/lib/amateur";
+import { COLLEGE_COMPETITIONS, getCareerAffiliation } from "@/lib/amateur-college";
 import { ATTRIBUTE_LABELS, statsRates } from "@/lib/game";
 import { getLeague, getTeam } from "@/lib/leagues";
 import type { AmateurSeasonResult, SeasonResult } from "@/lib/game-types";
@@ -11,10 +12,12 @@ type PlayedSeason = SeasonResult | AmateurSeasonResult;
 
 function seasonTeam(season: PlayedSeason) {
   if ("affiliationId" in season) {
-    const affiliation = getAmateurAffiliation(season.affiliationId);
+    const affiliation = getCareerAffiliation(season.affiliationId);
     return {
       name: affiliation?.name ?? "아마추어 소속",
-      competition: affiliation ? AMATEUR_COUNTRIES[affiliation.country].leagueName : "아마추어",
+      competition: affiliation
+        ? (affiliation.kind === "college" ? COLLEGE_COMPETITIONS[affiliation.country] : AMATEUR_COUNTRIES[affiliation.country]).leagueName
+        : "아마추어",
     };
   }
   return { name: getTeam(season.teamId).name, competition: getLeague(season.leagueId).name };
@@ -96,6 +99,7 @@ export function SeasonDetail({ result: s }: { result: PlayedSeason }) {
   const batter = s.role === "batter";
   const team = seasonTeam(s);
   const amateur = "affiliationId" in s;
+  const draft = amateur ? s.draft : undefined;
   const recentGames = s.games.filter(game => game.stats.g > 0).slice(-15).reverse();
   const cells: [string, string | number][] = batter
     ? [["경기", s.stats.g], ["타석", s.stats.pa], ["타수", s.stats.ab], ["안타", s.stats.h], ["2루타", s.stats.doubles], ["3루타", s.stats.triples], ["홈런", s.stats.hr], ["타점", s.stats.rbi], ["볼넷", s.stats.bb], ["삼진", s.stats.so], ["타율", decimal(rates.avg)], ["OPS", decimal(rates.ops)]]
@@ -104,7 +108,13 @@ export function SeasonDetail({ result: s }: { result: PlayedSeason }) {
   return <div className="season-detail">
     <div className="detail-player">
       <SeasonTeamMark season={s} large />
-      <div><h3>{team.name}</h3><p>{amateur ? team.competition : s.leagueId} · {s.age}세 · OVR {s.overallBefore} → {s.overallAfter}</p></div>
+      <div>
+        <h3>{team.name}</h3>
+        <p>{amateur ? team.competition : s.leagueId} · {s.age}세 · OVR {s.overallBefore} → {s.overallAfter}</p>
+        {draft && <p>{draft.leagueId} 드래프트 · {draft.status === "drafted"
+          ? `${getTeam(draft.teamId).name} ${draft.round}라운드 ${draft.pick}순위 (전체 ${draft.overallPick}순위)`
+          : "미지명"}</p>}
+      </div>
     </div>
     <div className="detail-stats">{cells.map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
     <h3>경기별 기록 <small>최근 출전 15경기</small></h3>
@@ -113,7 +123,7 @@ export function SeasonDetail({ result: s }: { result: PlayedSeason }) {
       <tbody>{recentGames.map(game => <tr key={game.id}>
         <td>#{game.number}</td>
         <td><span className="table-team">{amateur
-          ? <><AmateurMark id={game.opponentId} />{getAmateurAffiliation(game.opponentId)?.name ?? "상대 팀"}</>
+          ? <><AmateurMark id={game.opponentId} />{getCareerAffiliation(game.opponentId)?.name ?? "상대 팀"}</>
           : <><TeamMark id={game.opponentId} />{getTeam(game.opponentId).shortName}</>}</span></td>
         <td><span className={`game-result ${game.result}`}>{game.result}</span></td>
         <td>{game.scoreFor} : {game.scoreAgainst}</td>

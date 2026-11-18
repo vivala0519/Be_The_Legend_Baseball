@@ -1,7 +1,9 @@
 import { LEAGUES, TEAMS, getLeague, getTeam, teamsForLeague } from './leagues';
 import { AMATEUR_COUNTRIES, getAmateurAffiliation, getAmateurAffiliations } from './amateur';
 import type { AmateurAffiliation } from './amateur';
-import type { ActiveAmateurCareer, AmateurSeasonResult, Attributes, Career, CareerEvent, CareerTotals, CreateCareerInput, GameSummary, LeagueId, Offer, Player, ProfessionalCareer, SeasonResult, StatRates, Stats } from './game-types';
+import { COLLEGE_COMPETITIONS, COLLEGE_SEASONS, getCollegeAffiliation, getCollegeAffiliations } from './amateur-college';
+import type { CollegeAffiliation } from './amateur-college';
+import type { ActiveAmateurCareer, AmateurSeasonResult, Attributes, Career, CareerEvent, CareerTotals, CreateCareerInput, DraftResult, GameSummary, LeagueId, Offer, Player, ProfessionalCareer, SeasonResult, StatRates, Stats } from './game-types';
 
 export * from './game-types';
 export const HALL_THRESHOLD = 350;
@@ -16,6 +18,8 @@ const STAT_KEYS: (keyof Stats)[] = ['g', 'pa', 'ab', 'h', 'doubles', 'triples', 
 const LEAGUE_IDS: LeagueId[] = ['KBO', 'NPB', 'MLB', 'CPBL'];
 const INITIAL_SALARY: Record<LeagueId, number> = { KBO: 3000, NPB: 5000, MLB: 10000, CPBL: 1800 };
 const FIRST_YEAR = 2026;
+const DRAFT_ROUNDS = 8;
+const DRAFT_CUTOFF = 62;
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 const rounded = (n: number, digits = 3) => Math.round(n * 10 ** digits) / 10 ** digits;
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -65,7 +69,7 @@ function randomGenerator(career: Career) {
   return () => { career.seed = (Math.imul(career.seed, 1664525) + 1013904223) >>> 0; return career.seed / 4294967296; };
 }
 type Random = () => number;
-function pick<T>(items: T[], random: Random): T { return items[Math.floor(random() * items.length)]; }
+function pick<T>(items: readonly T[], random: Random): T { return items[Math.floor(random() * items.length)]; }
 function initialAttributes(role: 'batter' | 'pitcher', style: string, position: string): Attributes {
   const profiles = role === 'batter' ? {
     contact: [57, 37, 53, 45, 41, 37], power: [43, 60, 42, 34, 44, 42], speed: [45, 33, 43, 61, 48, 40],
@@ -87,7 +91,7 @@ export function createCareer(input: CreateCareerInput): Career {
   const seed = (input.seed ?? Math.floor(Math.random() * 4294967295)) >>> 0;
   const attrs = initialAttributes(role, style, position);
   const name = input.name.trim().slice(0, 16) || '새로운 전설';
-  const state: Omit<Career, 'leagueId' | 'teamId' | 'amateur'> = {
+  const state: Omit<Career, 'leagueId' | 'teamId' | 'amateur' | 'phase'> & { phase: 'ready' } = {
     schemaVersion: 1, id: `career-${seed.toString(36)}-${hash(name).toString(36)}`, seed,
     player: { name, number: clamp(Math.floor(input.number ?? 17), 0, 99), avatar: clamp(Math.floor(input.avatar ?? 0), 0, 7),
       role, position, hand: input.hand || '우', nationality: input.nationality || '대한민국', age: 18, attributes: attrs,
@@ -377,22 +381,24 @@ function createOffers(career: ProfessionalCareer, random: Random): Offer[] {
   return offers;
 }
 
-function amateurCompetition(affiliation: AmateurAffiliation): Competition {
+function amateurCompetition(affiliation: AmateurAffiliation | CollegeAffiliation): Competition {
+  const college = affiliation.kind === 'college';
+  const field = college ? getCollegeAffiliations(affiliation.country) : getAmateurAffiliations(affiliation.country);
   return {
     teamId: affiliation.id,
-    opponentIds: getAmateurAffiliations(affiliation.country).filter(team => team.id !== affiliation.id).map(team => team.id),
-    games: AMATEUR_COUNTRIES[affiliation.country].games,
-    level: .2,
+    opponentIds: field.filter(team => team.id !== affiliation.id).map(team => team.id),
+    games: (college ? COLLEGE_COMPETITIONS : AMATEUR_COUNTRIES)[affiliation.country].games,
+    level: college ? .45 : .2,
     allowsDraws: true,
   };
 }
 
-function amateurSchedule(affiliation: AmateurAffiliation, year: number): Competition {
+function amateurSchedule(affiliation: AmateurAffiliation | CollegeAffiliation, year: number): Competition {
   const competition = amateurCompetition(affiliation);
   const opponentCount = Math.ceil(competition.games / 3);
   const local: string[] = [], visiting: string[] = [];
   for (const id of competition.opponentIds) {
-    const region = getAmateurAffiliation(id)?.region;
+    const region = (affiliation.kind === 'college' ? getCollegeAffiliation(id) : getAmateurAffiliation(id))?.region;
     (region === affiliation.region ? local : visiting).push(id);
   }
   const matchupSeed = `${affiliation.id}:${year}`;
@@ -425,24 +431,47 @@ function updateCondition(career: Career, stats: Stats, gameCount: number, injure
   career.morale = clamp(Math.round(75 + (winRate - .5) * 40 + awardCount * 4), 35, 100);
 }
 
-function createEntryOffers(career: ActiveAmateurCareer, affiliation: AmateurAffiliation, random: Random): Offer[] {
-  const leagueId = AMATEUR_COUNTRIES[affiliation.country].leagueId;
-  const overall = getOverall(career.player);
-  const teams = [...teamsForLeague(leagueId)];
-  return ['육성 기회를', '출전 경쟁을'].map((opportunity, index) => {
-    const [team] = teams.splice(Math.floor(random() * teams.length), 1);
-    const salary = Math.round(INITIAL_SALARY[leagueId] * (1 + Math.max(0, overall - 45) * .04 + (1 - index) * .14) / 100) * 100;
-    return {
-      id: `entry-${career.year}-${team.id}`, leagueId, teamId: team.id, salary, years: index === 0 ? 2 : 1,
-      role: index === 0 ? '육성 선수' : overall >= 60 ? '주전 경쟁' : '출전 기회',
-      description: `${affiliation.name}에서의 활약을 본 구단에서 ${opportunity} 제안했어요.`, isCurrent: false,
-    };
-  });
+function runDraft(leagueId: LeagueId, season: AmateurSeasonResult, random: Random): DraftResult {
+  const rates = statsRates(season.stats);
+  const batter = season.role === 'batter';
+  const sample = batter ? season.stats.pa / 65 : season.stats.outs / 55;
+  const production = batter ? (rates.ops - .65) * 15 : (4.5 - rates.era) * 1.8;
+  const grade = season.overallAfter + clamp(production, -6, 6) * clamp(sample, 0, 1) + random() * 24 - 12;
+  if (grade < DRAFT_CUTOFF) return { status: 'undrafted', leagueId };
+
+  // Use the same game-specific round structure in each league. One team picks per round slot.
+  const round = clamp(DRAFT_ROUNDS - Math.floor((grade - DRAFT_CUTOFF) / 3), 1, DRAFT_ROUNDS);
+  const teams = teamsForLeague(leagueId).sort((a, b) => hash(`${season.year}:${a.id}`) - hash(`${season.year}:${b.id}`));
+  const pick = Math.floor(random() * teams.length) + 1;
+  return { status: 'drafted', leagueId, teamId: teams[pick - 1].id, round, pick, overallPick: (round - 1) * teams.length + pick };
+}
+
+function recordDraft(career: ActiveAmateurCareer, season: AmateurSeasonResult, leagueId: LeagueId) {
+  const draft = runDraft(leagueId, season, randomGenerator(career));
+  season.draft = draft;
+  const summary = draft.status === 'drafted'
+    ? `${getTeam(draft.teamId).name}에 ${draft.round}라운드 전체 ${draft.overallPick}순위로 지명됐어요.`
+    : '신인 드래프트에서 지명되지 않았어요.';
+  season.highlights.push(summary);
+  event(career, draft.status === 'drafted' ? '신인 드래프트 지명' : '신인 드래프트 미지명', summary, 'development');
+}
+
+function migrateLegacyEntryOffers(career: ActiveAmateurCareer) {
+  if (career.phase !== 'offseason' || !career.offers.length) return;
+  const season = career.amateur.history.at(-1);
+  if (!season || season.draft) return;
+
+  const leagueId = career.offers[0].leagueId;
+  career.offers = [];
+  season.highlights = season.highlights.filter(highlight => highlight !== '아마추어 마지막 시즌을 마치고 프로 구단에서 계약을 제안했어요.');
+  career.events = career.events.filter(entry => entry.year !== season.year || entry.title !== '프로 구단의 첫 제안');
+  recordDraft(career, season, leagueId);
 }
 
 function simulateAmateurSeason(career: ActiveAmateurCareer, random: Random): ActiveAmateurCareer {
-  const affiliation = getAmateurAffiliation(career.amateur.affiliationId);
-  if (!affiliation) throw new Error('시작 소속을 확인할 수 없어요.');
+  const college = career.amateur.college;
+  const affiliation = college ? getCollegeAffiliation(college.affiliationId) : getAmateurAffiliation(career.amateur.affiliationId);
+  if (!affiliation) throw new Error('현재 아마추어 소속을 확인할 수 없어요.');
   const competition = amateurSchedule(affiliation, career.year);
   const { stats, games, injuredGames, winRate, teamRecord } = playSchedule(career, competition, random);
   const overallBefore = getOverall(career.player);
@@ -451,19 +480,18 @@ function simulateAmateurSeason(career: ActiveAmateurCareer, random: Random): Act
   const highlights = [`${affiliation.name} 소속으로 ${stats.g}경기에 출전했어요.`];
   if (overallAfter > overallBefore) highlights.push(`종합 능력치 ${overallBefore} → ${overallAfter}`);
   if (injuredGames) highlights.push(`부상으로 ${injuredGames}경기 동안 재활했어요.`);
-  const finished = career.season === AMATEUR_COUNTRIES[affiliation.country].seasons;
-  if (finished) highlights.push('아마추어 마지막 시즌을 마치고 프로 구단에서 계약을 제안했어요.');
+  const config = AMATEUR_COUNTRIES[affiliation.country];
+  const academicYear = college?.year ?? career.season;
   const result: AmateurSeasonResult = {
     year: career.year, age: career.player.age, affiliationId: affiliation.id, role: career.player.role, stats,
     overallBefore, overallAfter, attributeGains, teamRecord, awards: [], highlights, games, injuredGames, championship: false,
-    news: [{ source: '아마추어 야구 소식', title: `${affiliation.name}에서 보낸 ${career.player.name}의 ${career.season}번째 시즌`, tone: 'neutral' }],
+    news: [{ source: '아마추어 야구 소식', title: `${affiliation.name}에서 보낸 ${career.player.name}의 ${academicYear}번째 시즌`, tone: 'neutral' }],
   };
   career.amateur.history.push(result);
-  const seasonNote = finished ? '아마추어 마지막 시즌을 마치고 프로 구단에서 계약을 제안했어요.' : highlights[0];
-  event(career, finished ? '프로 구단의 첫 제안' : '아마추어 시즌 마무리', seasonNote, 'development');
+  event(career, '아마추어 시즌 마무리', highlights[0], 'development');
   updateCondition(career, stats, competition.games, injuredGames, winRate, 0);
   career.phase = 'offseason';
-  career.offers = finished ? createEntryOffers(career, affiliation, random) : [];
+  if (college || academicYear === config.seasons) recordDraft(career, result, config.leagueId);
   return career;
 }
 
@@ -532,20 +560,34 @@ export function advanceOffseason(input: Career, offerId?: string): Career {
   if (input.phase !== 'offseason') return clone(input);
   const career = clone(input);
   if (career.teamId === null) {
-    if (!career.offers.length) {
-      prepareNextSeason(career);
-      return career;
+    migrateLegacyEntryOffers(career);
+    const draft = career.amateur.history.at(-1)?.draft;
+    if (draft?.status === 'drafted') {
+      const { teamId, leagueId, round } = draft;
+      const overall = getOverall(career.player);
+      const salary = Math.round(INITIAL_SALARY[leagueId] * (1 + Math.max(0, overall - 45) * .04 + (DRAFT_ROUNDS - round) * .02) / 100) * 100;
+      const professional: ProfessionalCareer = {
+        ...career, leagueId, teamId, salary, contractYears: round <= 3 ? 2 : 1,
+        amateur: { ...career.amateur, status: 'completed' },
+      };
+      prepareNextSeason(professional);
+      professional.season = 1;
+      event(professional, '프로 입단', `${getTeam(teamId).name}에 입단해 ${getLeague(leagueId).name} 데뷔를 준비합니다.`, 'transfer');
+      return professional;
     }
-    const offer = career.offers.find(item => item.id === offerId);
-    if (!offer) throw new Error('첫 프로 계약을 선택해 주세요.');
-    const professional: ProfessionalCareer = {
-      ...career, leagueId: offer.leagueId, teamId: offer.teamId, salary: offer.salary, contractYears: offer.years,
-      amateur: { ...career.amateur, status: 'completed' },
-    };
-    prepareNextSeason(professional);
-    professional.season = 1;
-    event(professional, '첫 프로 계약', `${getTeam(offer.teamId).name}에 입단해 ${getLeague(offer.leagueId).name} 데뷔를 준비합니다.`, 'transfer');
-    return professional;
+
+    const college = career.amateur.college;
+    if (college?.year === COLLEGE_SEASONS) return retireCareer(career);
+    prepareNextSeason(career);
+    if (college) college.year++;
+    else if (draft?.status === 'undrafted') {
+      const origin = getAmateurAffiliation(career.amateur.affiliationId);
+      if (!origin) throw new Error('시작 소속을 확인할 수 없어요.');
+      const destination = pick(getCollegeAffiliations(origin.country), randomGenerator(career));
+      career.amateur.college = { affiliationId: destination.id, year: 1 };
+      event(career, '대학 진학', `${destination.name}에 진학해 대학 야구 첫 시즌을 준비합니다.`, 'debut');
+    }
+    return career;
   }
   if (career.player.age >= 40) return retireCareer(career);
   const offer = career.offers.find(offer => offer.id === offerId) ?? career.offers[0];
@@ -565,7 +607,19 @@ function prepareNextSeason(career: Career) {
 }
 
 export function retireCareer(input: Career): Career {
-  if (input.phase === 'retired' || input.teamId === null) return clone(input);
+  if (input.phase === 'retired') return clone(input);
+  if (input.teamId === null) {
+    if (input.phase !== 'offseason' || input.amateur.college?.year !== COLLEGE_SEASONS
+      || input.amateur.history.at(-1)?.draft?.status !== 'undrafted') return clone(input);
+
+    const career = clone(input);
+    const summary = '대학 마지막 드래프트에서 지명되지 않아 아마추어 야구 선수 생활을 마쳤습니다.';
+    event(career, '아마추어 커리어 종료', summary, 'retirement');
+    return {
+      ...career, phase: 'retired', amateur: { ...career.amateur, status: 'retired' },
+      retirement: { hallOfFame: false, title: '아마추어 커리어 종료', summary, score: 0, tier: 'journey' },
+    };
+  }
   const career = clone(input), totals = careerTotals(career);
   const hallOfFame = career.hallScore >= HALL_THRESHOLD;
   const tier = hallOfFame ? 'legend' : career.hallScore >= HALL_THRESHOLD * .5 ? 'star' : career.history.length >= 8 ? 'veteran' : 'journey';
@@ -626,29 +680,73 @@ function validSeason(value: Record<string, unknown>, role: unknown, attrs: strin
     && results.W === record.wins && results.L === record.losses && results.D === record.draws;
 }
 
-function validAmateurPath(input: Record<string, unknown>, role: unknown, attrs: string[], age: unknown, offerCount: number) {
+function validDraft(value: unknown, leagueId: LeagueId): value is DraftResult {
+  if (!isObject(value) || value.leagueId !== leagueId) return false;
+  if (value.status === 'undrafted') return value.teamId === undefined && value.round === undefined && value.pick === undefined && value.overallPick === undefined;
+  const teams = teamsForLeague(leagueId).length;
+  return value.status === 'drafted' && validTeam(value.teamId, leagueId)
+    && finite(value.round, 1, DRAFT_ROUNDS, true) && finite(value.pick, 1, teams, true)
+    && value.overallPick === (Number(value.round) - 1) * teams + Number(value.pick);
+}
+
+function validAmateurPath(input: Record<string, unknown>, role: unknown, attrs: string[], age: unknown, offers: Offer[], proHistory: SeasonResult[]) {
   const amateur = input.amateur;
   if (!isObject(amateur) || typeof amateur.affiliationId !== 'string' || !Array.isArray(amateur.history)) return false;
   const affiliation = getAmateurAffiliation(amateur.affiliationId);
   if (!affiliation) return false;
+
+  const college = amateur.college;
+  if (college !== undefined && (!isObject(college) || typeof college.affiliationId !== 'string' || !finite(college.year, 1, COLLEGE_SEASONS, true))) return false;
+  const collegeAffiliation = college && getCollegeAffiliation(String(college.affiliationId));
+  if (college && collegeAffiliation?.country !== affiliation.country) return false;
+
   const config = AMATEUR_COUNTRIES[affiliation.country];
-  const competition = amateurCompetition(affiliation);
+  const schoolSeasons = config.seasons;
   const played = amateur.history.length;
-  if (played > config.seasons || !amateur.history.every((season, index) => isObject(season)
-    && season.affiliationId === affiliation.id && season.year === FIRST_YEAR + index && season.age === config.startAge + index
-    && validSeason(season, role, attrs, competition))) return false;
-  if (input.teamId !== null) return amateur.status === 'completed' && played === config.seasons
-    && Number(input.year) >= FIRST_YEAR + config.seasons && Number(age) >= config.startAge + config.seasons;
-  if (amateur.status !== 'active' || input.leagueId !== null || input.phase === 'retired' || input.retirement !== undefined
-    || input.salary !== 0 || input.contractYears !== 0 || input.hallScore !== 0
-    || (input.history as unknown[]).length || (input.awards as unknown[]).length) return false;
-  const index = played - (input.phase === 'offseason' ? 1 : 0);
-  if (index < 0 || index >= config.seasons || input.season !== index + 1
-    || input.year !== FIRST_YEAR + index || age !== config.startAge + index) return false;
-  if (index < config.seasons - 1 || input.phase === 'ready') return offerCount === 0;
-  const offers = input.offers as Offer[];
-  return offerCount > 0 && new Set(offers.map(offer => offer.teamId)).size === offerCount
+  if (played > schoolSeasons + (collegeAffiliation ? COLLEGE_SEASONS : 0)) return false;
+
+  const graduation = amateur.history[schoolSeasons - 1];
+  const legacyOffers = input.teamId === null && input.phase === 'offseason' && offers.length > 0
+    && new Set(offers.map(offer => offer.teamId)).size === offers.length
     && offers.every(offer => offer.leagueId === config.leagueId && !offer.isCurrent);
+  const legacy = college === undefined && played === schoolSeasons && isObject(graduation) && graduation.draft === undefined
+    && (input.teamId !== null || legacyOffers);
+
+  const schoolCompetition = amateurCompetition(affiliation);
+  const collegeCompetition = collegeAffiliation && amateurCompetition(collegeAffiliation);
+  let lastDraft: DraftResult | undefined;
+  for (const [index, season] of amateur.history.entries()) {
+    const competition = index < schoolSeasons ? schoolCompetition : collegeCompetition;
+    if (!competition || !isObject(season) || season.affiliationId !== competition.teamId || season.year !== FIRST_YEAR + index
+      || season.age !== config.startAge + index || !validSeason(season, role, attrs, competition)) return false;
+    if (index < schoolSeasons - 1 || legacy) {
+      if (season.draft !== undefined) return false;
+    } else {
+      if ((index >= schoolSeasons && lastDraft?.status !== 'undrafted') || !validDraft(season.draft, config.leagueId)) return false;
+      lastDraft = season.draft;
+    }
+  }
+
+  if (input.teamId !== null) {
+    if (amateur.status !== 'completed' || played < schoolSeasons
+      || Number(input.year) < FIRST_YEAR + played || Number(age) < config.startAge + played) return false;
+    if (legacy) return true;
+    if (college && college.year !== played - schoolSeasons) return false;
+    const firstPro = proHistory[0] ?? input;
+    return lastDraft?.status === 'drafted' && firstPro.teamId === lastDraft.teamId && firstPro.leagueId === lastDraft.leagueId
+      && firstPro.year === FIRST_YEAR + played;
+  }
+
+  if (input.leagueId !== null || (!legacy && offers.length)
+    || input.salary !== 0 || input.contractYears !== 0 || input.hallScore !== 0
+    || proHistory.length || (input.awards as unknown[]).length) return false;
+  const index = played - (input.phase === 'ready' ? 0 : 1);
+  if (index < 0 || input.season !== index + 1
+    || input.year !== FIRST_YEAR + index || age !== config.startAge + index) return false;
+  if (college ? college.year !== index - schoolSeasons + 1 : index >= schoolSeasons) return false;
+  if (input.phase === 'retired') return amateur.status === 'retired' && college?.year === COLLEGE_SEASONS && lastDraft?.status === 'undrafted';
+  return amateur.status === 'active' && input.retirement === undefined
+    && (input.phase !== 'ready' || lastDraft?.status !== 'drafted');
 }
 
 export function validateCareer(input: unknown): Career | null {
@@ -680,11 +778,14 @@ export function validateCareer(input: unknown): Career | null {
     if (input.events.some(item => !isObject(item) || !text(item.id, 1, 100) || !finite(item.year, 2026, 2075, true) || !text(item.title, 1, 100) || !text(item.text, 1, 1000) || !['debut', 'milestone', 'award', 'transfer', 'injury', 'retirement', 'development'].includes(String(item.kind)))) return null;
     if (input.awards.some(item => !isObject(item) || !finite(item.year, 2026, 2075, true) || !LEAGUE_IDS.includes(item.leagueId as LeagueId) || !text(item.name, 1, 60))) return null;
     if (input.offers.some(item => !isObject(item) || !text(item.id, 1, 100) || !validTeam(item.teamId, item.leagueId) || !finite(item.salary, 0, 10000000) || !finite(item.years, 1, 10, true) || !text(item.role, 1, 60) || !text(item.description, 1, 500) || typeof item.isCurrent !== 'boolean')) return null;
-    if (input.amateur !== undefined && !validAmateurPath(input, p.role, attrs, p.age, input.offers.length)) return null;
-    if (input.teamId === null) return input.amateur === undefined ? null : clone(input) as unknown as ActiveAmateurCareer;
-    if (!validTeam(input.teamId, input.leagueId) || (input.phase === 'offseason' && (!input.history.length || !input.offers.length))) return null;
     if (input.phase === 'retired' && (!isObject(input.retirement) || typeof input.retirement.hallOfFame !== 'boolean' || !text(input.retirement.title, 1, 100)
       || !text(input.retirement.summary, 1, 1000) || !finite(input.retirement.score, 0, 10000) || !['legend', 'star', 'veteran', 'journey'].includes(String(input.retirement.tier)))) return null;
-    return clone(input) as unknown as Career;
+    if (input.amateur !== undefined && !validAmateurPath(input, p.role, attrs, p.age, input.offers as Offer[], input.history as SeasonResult[])) return null;
+    if (input.teamId === null) {
+      if (input.amateur === undefined) return null;
+    } else if (!validTeam(input.teamId, input.leagueId) || (input.phase === 'offseason' && (!input.history.length || !input.offers.length))) return null;
+    const career = clone(input) as unknown as Career;
+    if (career.teamId === null && career.phase === 'offseason') migrateLegacyEntryOffers(career);
+    return career;
   } catch { return null; }
 }

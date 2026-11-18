@@ -32,11 +32,19 @@ export interface SeasonResult {
   salary: number; injuredGames: number; championship: boolean;
 }
 
-export type AmateurSeasonResult = Omit<SeasonResult, 'leagueId' | 'teamId' | 'salary'> & { affiliationId: string };
+export type DraftResult =
+  | { status: 'undrafted'; leagueId: LeagueId }
+  | { status: 'drafted'; leagueId: LeagueId; teamId: string; round: number; pick: number; overallPick: number };
+
+export type AmateurSeasonResult = Omit<SeasonResult, 'leagueId' | 'teamId' | 'salary'> & {
+  affiliationId: string;
+  draft?: DraftResult;
+};
 
 export interface AmateurCareer {
   affiliationId: string;
-  status: 'active' | 'completed';
+  status: 'active' | 'completed' | 'retired';
+  college?: { affiliationId: string; year: number };
   history: AmateurSeasonResult[];
 }
 
@@ -66,14 +74,20 @@ interface CareerState {
 }
 
 export type ActiveAmateurCareer = CareerState & {
+  phase: 'ready' | 'offseason';
   leagueId: null; teamId: null; amateur: AmateurCareer & { status: 'active' };
+};
+
+export type RetiredAmateurCareer = CareerState & {
+  phase: 'retired'; retirement: Retirement;
+  leagueId: null; teamId: null; amateur: AmateurCareer & { status: 'retired' };
 };
 
 export type ProfessionalCareer = CareerState & {
   leagueId: LeagueId; teamId: string; amateur?: AmateurCareer & { status: 'completed' };
 };
 
-export type Career = ActiveAmateurCareer | ProfessionalCareer;
+export type Career = ActiveAmateurCareer | RetiredAmateurCareer | ProfessionalCareer;
 
 interface CreatePlayerInput {
   name: string; number?: number; avatar?: number; role: PlayerRole; position?: string;

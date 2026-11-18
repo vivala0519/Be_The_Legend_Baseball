@@ -3,6 +3,7 @@ import {useEffect,useRef,useState,type ReactNode,type CSSProperties} from "react
 import Image from "next/image";
 import {X,ArrowRight,GraduationCap} from "lucide-react";
 import {getAmateurAffiliation} from "@/lib/amateur";
+import {getCollegeAffiliation} from "@/lib/amateur-college";
 import {getAmateurMark} from "@/lib/amateur-marks";
 import {getTeam} from "@/lib/leagues";
 export function BrandBall({size=27}:{size?:number}){return <svg width={size} height={size} viewBox="0 0 40 40" fill="none" aria-hidden="true"><circle cx="20" cy="20" r="17" stroke="currentColor" strokeWidth="2"/><path d="M8 7c15 5 15 21 0 26M32 7c-15 5-15 21 0 26" stroke="currentColor" strokeWidth="1.6"/><path d="m11 10-2 3m5 1-3 3m4 2-3 2m2 3-3 2m18-16 2 3m-5 1 3 3m-4 2 3 2m-2 3 3 2" stroke="currentColor" strokeWidth="1.4"/></svg>}
@@ -10,11 +11,12 @@ export function TeamMark({id,large=false}:{id:string;large?:boolean}){const t=ge
 export function AmateurMark({id,large=false}:{id:string;large?:boolean}) {
   const [failedSrc, setFailedSrc] = useState<string>();
   const affiliation = getAmateurAffiliation(id);
+  const college = getCollegeAffiliation(id);
   const mark = affiliation ? getAmateurMark(affiliation) : undefined;
   const showMark = mark && failedSrc !== mark.src;
-  const name = affiliation?.name.replace(/\s*(고등학교|고교|高等学校|高校|high school|school)$/iu, "").trim();
+  const name = (affiliation?.name ?? college?.name)?.replace(/\s*(고등학교|고교|高等学校|高校|high school|school|대학교|대학)$/iu, "").trim();
   const initials = name ? Array.from(name.replace(/\s/g, "")).slice(0, 2).join("").toUpperCase() : "";
-  const school = affiliation?.kind === "school";
+  const school = affiliation?.kind === "school" || !!college;
   return <span className={`team-mark amateur-mark${large ? " large" : ""}${showMark ? " has-image" : ""}`} style={{"--team": school ? "#2867c7" : "#117c65"} as CSSProperties} aria-hidden="true">
     {showMark ? <Image src={mark.src} width={large ? 40 : 26} height={large ? 40 : 26} alt="" unoptimized onError={() => setFailedSrc(mark.src)} />
       : school ? (initials || <GraduationCap size={large ? 25 : 17} />) : <BrandBall size={large ? 28 : 19} />}

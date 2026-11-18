@@ -61,7 +61,7 @@ export default function Creator({ initialLeague, onClose, onCreate, hasCareer }:
   const attributes = role === "batter" ? BATTER_ATTRIBUTES : PITCHER_ATTRIBUTES;
   const positions = role === "batter" ? BATTER_POSITIONS : PITCHER_POSITIONS;
   const positionName = positions.find(option => option.value === position)?.label ?? position;
-  const hands = role === "batter" ? ["우투우타", "우투좌타", "좌투우타", "좌투좌타", "우투양타"] : ["우투", "좌투"];
+  const hands = role === "batter" ? ["우투우타", "우투좌타", "좌투우타", "좌투좌타", "우투양타", "좌투양타"] : ["우투", "좌투"];
   const styleName = STYLES[role].find(candidate => candidate.id === style)?.name || style;
   const country = AMATEUR_COUNTRIES[countryCode];
   const affiliations = getAmateurAffiliations(countryCode);
@@ -183,7 +183,7 @@ export default function Creator({ initialLeague, onClose, onCreate, hasCareer }:
           }} />
           <AffiliationPicker key={countryCode} label={affiliationLabel} choices={affiliations} selected={affiliation}
             describedBy={`${id}-amateur-route`} onChange={value => { setAffiliationId(value); setError(""); }} />
-          <p className="muted small" id={`${id}-amateur-route`}>아마추어 {country.seasons}시즌을 마치면 {proLeague.name} 구단의 계약 제안을 받아요.
+          <p className="muted small" id={`${id}-amateur-route`}>아마추어 {country.seasons}시즌 뒤 {proLeague.name} 드래프트에 참가해요. 미지명되면 대학에 진학해요.
             {affiliationMark && <> <a className="creator-mark-source" href={affiliationMark.sourceUrl} target="_blank" rel="noreferrer" title={[affiliationMark.attribution, affiliationMark.license].filter(Boolean).join(" · ")}>{affiliation?.kind === "academy" ? "로고 출처" : "교표 출처"}</a></>}
           </p>
         </div>}

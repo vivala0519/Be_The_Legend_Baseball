@@ -233,3 +233,51 @@
   outline-offset: 1px;
   box-shadow: 0 0 0 4px #174f9c;
 }
+
+.draft-result .section-heading {
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.draft-result .section-heading h2 {
+  margin-top: 4px;
+  line-height: 1.4;
+  word-break: keep-all;
+}
+
+.draft-result .section-heading svg,
+.draft-next svg {
+  flex-shrink: 0;
+  color: var(--t-blue);
+}
+
+.draft-pick,
+.draft-next {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 17px;
+  border-radius: 16px;
+  word-break: keep-all;
+}
+
+.draft-pick { background: var(--t-blue-50); }
+.draft-pick .team-mark { flex-shrink: 0; }
+.draft-pick h3 { font-size: 17px; }
+.draft-pick p {
+  margin-top: 5px;
+  color: var(--t-blue);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+.draft-pick p span,
+.draft-next {
+  color: var(--t-g700);
+  font-weight: 500;
+}
+.draft-next {
+  background: var(--t-g100);
+  font-size: 14px;
+  line-height: 1.65;
+}
