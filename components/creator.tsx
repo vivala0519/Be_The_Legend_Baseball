@@ -2,10 +2,14 @@
 
 import { useId, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Check, Shuffle } from "lucide-react";
-import { Avatar, Modal, TeamMark } from "@/components/game-ui";
+import { BATTER_POSITIONS, BatterPositionPicker } from "@/components/batter-position-picker";
+import { AmateurMark, Avatar, Modal } from "@/components/game-ui";
+import { AffiliationPicker, CreatorSelect } from "@/components/creator-pickers";
+import { AMATEUR_COUNTRIES, AMATEUR_COUNTRY_CODES, getAmateurAffiliations, type AmateurCountry } from "@/lib/amateur";
+import { getAmateurMark } from "@/lib/amateur-marks";
 import { ATTRIBUTE_LABELS, BATTER_ATTRIBUTES, PITCHER_ATTRIBUTES, createCareer, getOverall } from "@/lib/game";
 import type { CreateCareerInput, PlayerRole } from "@/lib/game-types";
-import { LEAGUES, getTeam, teamsForLeague, type LeagueId } from "@/lib/leagues";
+import { getLeague, teamsForLeague, type LeagueId } from "@/lib/leagues";
 
 interface CreatorProps {
   initialLeague: LeagueId;
@@ -14,12 +18,14 @@ interface CreatorProps {
   hasCareer: boolean;
 }
 
-const BATTER_POSITIONS = [
-  ["C", "포수"], ["1B", "1루수"], ["2B", "2루수"], ["3B", "3루수"], ["SS", "유격수"],
-  ["LF", "좌익수"], ["CF", "중견수"], ["RF", "우익수"], ["DH", "지명타자"],
+const PITCHER_POSITIONS = [
+  { value: "SP", label: "선발 투수" }, { value: "RP", label: "불펜 투수" }, { value: "CP", label: "마무리 투수" },
 ] as const;
-const PITCHER_POSITIONS = [["SP", "선발 투수"], ["RP", "불펜 투수"], ["CP", "마무리 투수"]] as const;
-const NATIONALITIES = ["대한민국", "일본", "미국", "대만", "도미니카공화국", "베네수엘라"];
+const INITIAL_COUNTRY: Record<LeagueId, AmateurCountry> = { KBO: "KR", NPB: "JP", MLB: "US", CPBL: "TW" };
+const COUNTRY_OPTIONS = AMATEUR_COUNTRY_CODES.map(code => ({
+  value: code, label: AMATEUR_COUNTRIES[code].label, icon: AMATEUR_COUNTRIES[code].flag,
+}));
+const NATIONALITY_OPTIONS = COUNTRY_OPTIONS.map(option => ({ ...option, value: option.label }));
 const STYLES = {
   batter: [
     { id: "contact", name: "정교한 컨택형", description: "컨택 · 선구안 · 정확한 타격", targets: ["contact", "eye"] },
@@ -46,21 +52,28 @@ export default function Creator({ initialLeague, onClose, onCreate, hasCareer }:
   const [position, setPosition] = useState("CF");
   const [hand, setHand] = useState("우투우타");
   const [avatar, setAvatar] = useState(0);
-  const [league, setLeague] = useState<LeagueId>(initialLeague);
-  const [team, setTeam] = useState(teamsForLeague(initialLeague)[0].id);
+  const [countryCode, setCountryCode] = useState(INITIAL_COUNTRY[initialLeague]);
+  const [affiliationId, setAffiliationId] = useState("");
   const [style, setStyle] = useState("contact");
   const [training, setTraining] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [confirm, setConfirm] = useState(false);
   const attributes = role === "batter" ? BATTER_ATTRIBUTES : PITCHER_ATTRIBUTES;
   const positions = role === "batter" ? BATTER_POSITIONS : PITCHER_POSITIONS;
-  const positionName = positions.find(([value]) => value === position)?.[1] || position;
-  const hands = role === "batter" ? ["우투우타", "우투좌타", "좌투좌타", "우투양타"] : ["우투", "좌투"];
+  const positionName = positions.find(option => option.value === position)?.label ?? position;
+  const hands = role === "batter" ? ["우투우타", "우투좌타", "좌투우타", "좌투좌타", "우투양타"] : ["우투", "좌투"];
   const styleName = STYLES[role].find(candidate => candidate.id === style)?.name || style;
+  const country = AMATEUR_COUNTRIES[countryCode];
+  const affiliations = getAmateurAffiliations(countryCode);
+  const affiliation = affiliations.find(entry => entry.id === affiliationId);
+  const affiliationMark = affiliation ? getAmateurMark(affiliation) : undefined;
+  const affiliationLabel = country.kind === "school" ? "고교 야구부" : "야구 아카데미";
+  const proLeague = getLeague(country.leagueId);
   const candidates = useMemo(() => STYLES[role].map(candidate => ({ ...candidate, player: createCareer({
-    name: name || "새로운 선수", role, position, hand, nationality, leagueId: league, teamId: team,
+    name: name || "새로운 선수", role, position, hand, nationality,
+    leagueId: initialLeague, teamId: teamsForLeague(initialLeague)[0].id,
     number: Number(number) || 0, avatar, style: candidate.id, seed: 0,
-  }).player })), [role, position, hand, nationality, league, team, number, avatar, name]);
+  }).player })), [role, position, hand, nationality, initialLeague, number, avatar, name]);
   const selected = candidates.find(candidate => candidate.id === style) || candidates[0];
 
   function toStep(next: number) {
@@ -102,6 +115,10 @@ export default function Creator({ initialLeague, onClose, onCreate, hasCareer }:
         setError("등번호는 0부터 99 사이의 정수로 입력해 주세요.");
         return;
       }
+      if (!affiliation) {
+        setError("시작 소속을 선택해 주세요.");
+        return;
+      }
     }
     if (step === 3) {
       if (!training.length) { setError("집중해서 키울 능력치를 한 개 이상 골라 주세요."); return; }
@@ -113,8 +130,9 @@ export default function Creator({ initialLeague, onClose, onCreate, hasCareer }:
   }
 
   function create() {
+    if (!affiliation) return;
     onCreate({ name: name.trim().slice(0, 16), number: Number(number), avatar, nationality, role,
-      position, hand, leagueId: league, teamId: team, style, training: [...training] });
+      position, hand, amateurAffiliationId: affiliation.id, style, training: [...training] });
   }
 
   function randomProfile() {
@@ -136,7 +154,7 @@ export default function Creator({ initialLeague, onClose, onCreate, hasCareer }:
     <form onSubmit={event => { event.preventDefault(); nextStep(); }} noValidate>
       <div className="creator-content">
         <div className="creator-heading">
-          <p>{step === 0 ? "나의 야구 인생을 시작해요" : step === 1 ? "18세, 신인 선수로 시작해요" : step === 2 ? `${name} · ${positionName}` : `${styleName} · OVR ${getOverall(selected.player)}`}</p>
+          <p>{step === 0 ? "나의 야구 인생을 시작해요" : step === 1 ? `${country.startAge}세, 아마추어 선수로 시작해요` : step === 2 ? `${name} · ${positionName}` : `${styleName} · OVR ${getOverall(selected.player)}`}</p>
           <h1>{step === 0 ? "선수의 모습을 골라 주세요" : step === 1 ? "어떤 선수로 살아볼까요?" : step === 2 ? <>플레이 스타일을<br />골라 주세요</> : <>집중해서 키울 능력치를<br />골라 주세요</>}</h1>
           {step === 2 && <p>세 후보 모두 OVR 45에서 시작하고, 능력치 분포만 달라요.</p>}
           {step === 3 && <p>최대 2개까지 고를 수 있어요. 고른 능력치에 훈련을 집중합니다.</p>}
@@ -153,11 +171,21 @@ export default function Creator({ initialLeague, onClose, onCreate, hasCareer }:
           <label className="field-label" htmlFor={`${id}-name`}>이름<input id={`${id}-name`} ref={nameRef} autoFocus maxLength={16} required autoComplete="off" value={name} onChange={event => { setName(event.target.value); setError(""); }} placeholder=" " aria-invalid={!!error && !name.trim()} aria-describedby={error ? `${id}-error` : undefined} /></label>
           <label className="field-label" htmlFor={`${id}-number`}>등번호<input id={`${id}-number`} type="number" inputMode="numeric" min={0} max={99} step={1} value={number} onChange={event => { setNumber(event.target.value); setError(""); }} /></label>
           <fieldset className="creator-role-field"><legend>선수 유형</legend><div className="segmented"><button type="button" className={role === "batter" ? "selected" : ""} aria-pressed={role === "batter"} onClick={() => changeRole("batter")}>타자</button><button type="button" className={role === "pitcher" ? "selected" : ""} aria-pressed={role === "pitcher"} onClick={() => changeRole("pitcher")}>투수</button></div></fieldset>
-          <label className="field-label" htmlFor={`${id}-position`}>포지션<select id={`${id}-position`} value={position} onChange={event => setPosition(event.target.value)}>{positions.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
-          <label className="field-label" htmlFor={`${id}-hand`}>투타<select id={`${id}-hand`} value={hand} onChange={event => setHand(event.target.value)}>{hands.map(value => <option key={value}>{value}</option>)}</select></label>
-          <label className="field-label" htmlFor={`${id}-nationality`}>국적<select id={`${id}-nationality`} value={nationality} onChange={event => setNationality(event.target.value)}>{NATIONALITIES.map(value => <option key={value}>{value}</option>)}</select></label>
-          <label className="field-label" htmlFor={`${id}-league`}>시작 리그<select id={`${id}-league`} value={league} onChange={event => { const next = event.target.value as LeagueId; setLeague(next); setTeam(teamsForLeague(next)[0].id); }}>{LEAGUES.map(value => <option key={value.id} value={value.id}>{value.flag} {value.name}</option>)}</select></label>
-          <label className="field-label" htmlFor={`${id}-team`}>구단<select id={`${id}-team`} value={team} onChange={event => setTeam(event.target.value)}>{teamsForLeague(league).map(value => <option key={value.id} value={value.id}>{value.name}</option>)}</select></label>
+          {role === "batter"
+            ? <BatterPositionPicker value={position} onChange={setPosition} />
+            : <CreatorSelect label="포지션" value={position} options={PITCHER_POSITIONS} onChange={setPosition} />}
+          <CreatorSelect key={role} label="투타" value={hand} options={hands.map(value => ({ value, label: value }))} onChange={setHand} />
+          <CreatorSelect label="국적" value={nationality} options={NATIONALITY_OPTIONS} onChange={setNationality} />
+          <CreatorSelect label="시작 국가" value={countryCode} options={COUNTRY_OPTIONS} onChange={value => {
+            setCountryCode(value as AmateurCountry);
+            setAffiliationId("");
+            setError("");
+          }} />
+          <AffiliationPicker key={countryCode} label={affiliationLabel} choices={affiliations} selected={affiliation}
+            describedBy={`${id}-amateur-route`} onChange={value => { setAffiliationId(value); setError(""); }} />
+          <p className="muted small" id={`${id}-amateur-route`}>아마추어 {country.seasons}시즌을 마치면 {proLeague.name} 구단의 계약 제안을 받아요.
+            {affiliationMark && <> <a className="creator-mark-source" href={affiliationMark.sourceUrl} target="_blank" rel="noreferrer" title={[affiliationMark.attribution, affiliationMark.license].filter(Boolean).join(" · ")}>{affiliation?.kind === "academy" ? "로고 출처" : "교표 출처"}</a></>}
+          </p>
         </div>}
 
         {step === 2 && <div className="creator-style-cards" aria-label="플레이 스타일">
@@ -178,15 +206,15 @@ export default function Creator({ initialLeague, onClose, onCreate, hasCareer }:
 
         {error && <p className="form-error" id={`${id}-error`} role="alert">{error}</p>}
       </div>
-      <div className="creator-bottom"><button type="submit" className="button primary creator-submit" disabled={step === 1 ? !name.trim() || number === "" : step === 3 ? training.length === 0 : false}>{CTA[step]}</button></div>
+      <div className="creator-bottom"><button type="submit" className="button primary creator-submit" disabled={step === 1 ? !name.trim() || number === "" || !affiliation : step === 3 ? training.length === 0 : false}>{CTA[step]}</button></div>
     </form>
 
-    {confirm && <Modal title={`${name} ${positionName}`} onClose={() => setConfirm(false)}>
+    {confirm && affiliation && <Modal title={`${name} ${positionName}`} onClose={() => setConfirm(false)}>
       <div className="creator-confirm-summary">
-        <p className="creator-confirm-subtitle">{styleName} · 등번호 {number} · 18세</p>
-        <dl><div><dt>소속</dt><dd><TeamMark id={team} />{getTeam(team).name}</dd></div><div><dt>국적 · 투타</dt><dd>{nationality} · {hand}</dd></div><div><dt>능력치 합 · OVR</dt><dd>{Math.round(Object.values(selected.player.attributes).reduce((sum, value) => sum + value, 0))} · {getOverall(selected.player)}</dd></div><div><dt>집중 육성</dt><dd>{training.map(key => ATTRIBUTE_LABELS[key]).join(" · ")}</dd></div></dl>
+        <p className="creator-confirm-subtitle">{styleName} · 등번호 {number} · {country.startAge}세</p>
+        <dl><div><dt>시작 소속</dt><dd><AmateurMark id={affiliation.id} />{affiliation.name}</dd></div><div><dt>국적 · 투타</dt><dd>{nationality} · {hand}</dd></div><div><dt>능력치 합 · OVR</dt><dd>{Math.round(Object.values(selected.player.attributes).reduce((sum, value) => sum + value, 0))} · {getOverall(selected.player)}</dd></div><div><dt>집중 육성</dt><dd>{training.map(key => ATTRIBUTE_LABELS[key]).join(" · ")}</dd></div></dl>
       </div>
-      <div className="creator-confirm-actions"><button type="button" className="button secondary" onClick={() => setConfirm(false)}>다시 보기</button><button type="button" className="button primary" onClick={create}>첫 시즌 시작</button></div>
+      <div className="creator-confirm-actions"><button type="button" className="button secondary" onClick={() => setConfirm(false)}>다시 보기</button><button type="button" className="button primary" onClick={create}>아마추어 시즌 시작</button></div>
     </Modal>}
   </section>;
 }

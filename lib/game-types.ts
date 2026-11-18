@@ -32,6 +32,14 @@ export interface SeasonResult {
   salary: number; injuredGames: number; championship: boolean;
 }
 
+export type AmateurSeasonResult = Omit<SeasonResult, 'leagueId' | 'teamId' | 'salary'> & { affiliationId: string };
+
+export interface AmateurCareer {
+  affiliationId: string;
+  status: 'active' | 'completed';
+  history: AmateurSeasonResult[];
+}
+
 export interface CareerEvent {
   id: string; year: number; title: string; text: string;
   kind: 'debut' | 'milestone' | 'award' | 'transfer' | 'injury' | 'retirement' | 'development';
@@ -47,9 +55,9 @@ export interface Retirement {
   tier: 'legend' | 'star' | 'veteran' | 'journey';
 }
 
-export interface Career {
+interface CareerState {
   schemaVersion: 1; id: string; seed: number; player: Player;
-  leagueId: LeagueId; teamId: string; year: number; season: number;
+  year: number; season: number;
   phase: 'ready' | 'offseason' | 'retired'; training: string[]; plan: GamePlan;
   health: number; fatigue: number; morale: number; salary: number;
   contractYears: number; history: SeasonResult[]; events: CareerEvent[];
@@ -57,11 +65,26 @@ export interface Career {
   retirement?: Retirement;
 }
 
-export interface CreateCareerInput {
+export type ActiveAmateurCareer = CareerState & {
+  leagueId: null; teamId: null; amateur: AmateurCareer & { status: 'active' };
+};
+
+export type ProfessionalCareer = CareerState & {
+  leagueId: LeagueId; teamId: string; amateur?: AmateurCareer & { status: 'completed' };
+};
+
+export type Career = ActiveAmateurCareer | ProfessionalCareer;
+
+interface CreatePlayerInput {
   name: string; number?: number; avatar?: number; role: PlayerRole; position?: string;
-  hand?: string; nationality?: string; leagueId: LeagueId; teamId: string;
+  hand?: string; nationality?: string;
   style?: string; training?: string[]; seed?: number;
 }
+
+export type CreateCareerInput = CreatePlayerInput & (
+  | { amateurAffiliationId: string; leagueId?: never; teamId?: never }
+  | { amateurAffiliationId?: never; leagueId: LeagueId; teamId: string }
+);
 
 export interface StatRates {
   avg: number; obp: number; slg: number; ops: number; era: number; whip: number;

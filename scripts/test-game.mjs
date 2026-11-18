@@ -8,14 +8,17 @@ import ts from 'typescript';
 const root = process.cwd();
 const out = path.join(root, 'work', 'engine-test-runtime');
 await fs.mkdir(out, { recursive: true });
-for (const file of ['game-types', 'leagues', 'game']) {
+for (const file of ['game-types', 'leagues', 'amateur-japan', 'amateur-korea', 'amateur-taiwan', 'amateur-us-texas', 'amateur-western-names', 'amateur-search', 'amateur-marks', 'amateur', 'game']) {
   const source = await fs.readFile(path.join(root, 'lib', `${file}.ts`), 'utf8');
   const result = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } });
-  const code = result.outputText.replace(/from ['"]\.\/(leagues|game-types)['"]/g, "from './$1.mjs'").replace(/from ['"]\.\/(leagues|game-types)['"]/g, "from './$1.mjs'");
+  const code = result.outputText.replace(/from ['"](\.\/[\w-]+)['"]/g, "from '$1.mjs'");
   await fs.writeFile(path.join(out, `${file}.mjs`), code);
 }
 const game = await import(pathToFileURL(path.join(out, 'game.mjs')));
 const data = await import(pathToFileURL(path.join(out, 'leagues.mjs')));
+const { AMATEUR_COUNTRIES, getAmateurAffiliations } = await import(pathToFileURL(path.join(out, 'amateur.mjs')));
+const { createAffiliationSearch } = await import(pathToFileURL(path.join(out, 'amateur-search.mjs')));
+const { getAmateurMark } = await import(pathToFileURL(path.join(out, 'amateur-marks.mjs')));
 const { createCareer, simulateSeason, advanceOffseason, retireCareer, getOverall, careerTotals, statsRates, validateCareer, emptyStats } = game;
 const { LEAGUES, TEAMS, teamsForLeague } = data;
 let checks = 0;
@@ -93,6 +96,94 @@ for (const position of ['RP','CP']) {
   let c = createCareer({name:'불펜검증',role:'pitcher',position,style:'control',leagueId:'MLB',teamId:teamsForLeague('MLB')[1].id,seed:4568});
   c = simulateSeason(c); assertSeason(c,position);
   if (position==='CP') check(c.history[0].stats.sv>0,'closer can earn saves');
+}
+
+const expectedAffiliations = { KR: 78, JP: 3608, US: 1230, TW: 41, DO: 53, VE: 38 };
+const allAffiliations = Object.keys(AMATEUR_COUNTRIES).flatMap(getAmateurAffiliations);
+eq(new Set(allAffiliations.map(affiliation => affiliation.id)).size, allAffiliations.length, 'unique affiliation IDs');
+eq(new Set(getAmateurAffiliations('JP').map(affiliation => affiliation.region)).size, 47, 'all Japanese prefectures');
+
+for (const country of ['JP', 'US', 'DO', 'VE']) {
+  check(getAmateurAffiliations(country).every(affiliation => /\p{Script=Hangul}/u.test(affiliation.name)
+    && !/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Latin}]/u.test(affiliation.name)
+    && affiliation.nativeName), `${country}: localized display with original search names`);
+}
+const searchCases = [
+  ['JP', 'jp-429-大阪桐蔭', ['오사카토인', '오사카 도인 고교', '大阪桐蔭', '大阪桐蔭高等学校']],
+  ['US', 'us-lake-travis', ['레이크트래비스', 'Lake Travis High School']],
+  ['DO', 'do-la-javilla', ['라하비야', 'Academia La Javilla']],
+  ['VE', 've-david-concepcion', ['Academia David Concepción', 'David Concepcion']],
+  ['VE', 've-carlos-guillen', ['카를로스기옌', 'Academia Carlos Guillén']],
+];
+for (const [country, id, queries] of searchCases) {
+  const entries = getAmateurAffiliations(country);
+  const search = createAffiliationSearch(entries);
+  const entry = entries.find(affiliation => affiliation.id === id);
+  check(entry, `${country}: ${id} keeps its existing ID`);
+  for (const query of [entry.name, ...queries]) {
+    check(search(query).some(affiliation => affiliation.id === id), `${country}: search matches ${query}`);
+  }
+}
+
+const marks = allAffiliations.map(getAmateurMark).filter(Boolean);
+check(getAmateurAffiliations('KR').every(getAmateurMark), 'every Korean school has a mark');
+check(getAmateurMark(getAmateurAffiliations('JP').find(affiliation => affiliation.id === 'jp-429-大阪桐蔭')), 'Osaka Toin mark survives localization');
+for (const mark of marks) {
+  check(mark.src.startsWith('/amateur-marks/') && mark.sourceUrl.startsWith('https://'), `${mark.src}: local image and attribution source`);
+  check((await fs.stat(path.join(root, 'public', mark.src))).size > 0, `${mark.src}: bundled image exists`);
+}
+
+for (const [country, rules] of Object.entries(AMATEUR_COUNTRIES)) {
+  const affiliations = getAmateurAffiliations(country);
+  const affiliation = affiliations[0];
+  const role = rules.kind === 'school' ? 'batter' : 'pitcher';
+  const label = `${country} ${rules.kind}`;
+  eq(affiliations.length, expectedAffiliations[country], `${label}: verified catalog coverage`);
+  let c = createCareer({ name: '아마추어 검증', role, hand: role === 'batter' ? '좌투우타' : '좌투', amateurAffiliationId: affiliation.id, seed: 120591 });
+  eq(c.player.hand, role === 'batter' ? '좌투우타' : '좌투', `${label}: selected handedness is saved`);
+  eq(c.player.age, rules.startAge, `${label}: correct starting age`);
+  eq(c.teamId, null, `${label}: starts without a professional club`);
+  eq(c.leagueId, null, `${label}: starts without a professional league`);
+  eq(retireCareer(c), c, `${label}: cannot retire as a professional before signing`);
+  for (let i = 1; i <= rules.seasons; i++) {
+    eq(c.season, i, `${label}: correct amateur season`);
+    eq(validateCareer(clone(c)), c, `${label}: saves before amateur season ${i}`);
+    const before = clone(c);
+    c = simulateSeason(c);
+    eq(c, simulateSeason(before), `${label}: amateur schedule is deterministic`);
+    eq(simulateSeason(c), c, `${label}: amateur season cannot run twice`);
+    const season = c.amateur.history.at(-1);
+    eq(season.games.length, rules.games, `${label}: simulated amateur schedule`);
+    check(season.games.every(game => affiliations.some(opponent => opponent.id === game.opponentId && opponent.id !== affiliation.id)), `${label}: games use actual catalog opponents`);
+    const opponentCount = new Set(season.games.map(game => game.opponentId)).size;
+    check(season.teamRecord.rank <= opponentCount + 1, `${label}: rank is relative to scheduled opponents`);
+    assertStats(season.stats, role, `${label} season ${i}`);
+    eq(careerTotals(c).g, 0, `${label}: amateur games excluded from professional totals`);
+    eq(c.hallScore, 0, `${label}: amateur games excluded from hall score`);
+    eq(validateCareer(clone(c)), c, `${label}: saves after amateur season ${i}`);
+    if (i < rules.seasons) {
+      eq(c.offers.length, 0, `${label}: no offers before final season`);
+      c = advanceOffseason(c);
+    }
+  }
+  eq(c.offers.length, 2, `${label}: receives two first pro offers`);
+  check(c.offers.every(offer => offer.leagueId === rules.leagueId && !offer.isCurrent), `${label}: offers route to the correct pro league`);
+  assert.throws(() => advanceOffseason(c, 'missing-offer'), /첫 프로 계약/);
+  const offer = c.offers[1];
+  const invalid = clone(c);
+  invalid.amateur.history[0].games[0].opponentId = offer.teamId;
+  eq(validateCareer(invalid), null, `${label}: rejects professional opponents in an amateur save`);
+  c = advanceOffseason(validateCareer(clone(c)), offer.id);
+  eq(c.teamId, offer.teamId, `${label}: joins chosen professional club`);
+  eq(c.leagueId, rules.leagueId, `${label}: joins intended professional league`);
+  eq(c.player.age, rules.startAge + rules.seasons, `${label}: ages through amateur years`);
+  eq(c.season, 1, `${label}: starts at professional season one`);
+  eq(c.amateur.history.length, rules.seasons, `${label}: retains amateur history after signing`);
+  eq(c.amateur.status, 'completed', `${label}: finalizes amateur stage`);
+  eq(validateCareer(clone(c)), c, `${label}: saves after first pro contract`);
+  c = simulateSeason(c);
+  assertSeason(c, `${label} first pro season`);
+  eq(careerTotals(c).g, c.history[0].stats.g, `${label}: only pro stats count after promotion`);
 }
 
 // The two visible player-development controls must change their intended outcomes.

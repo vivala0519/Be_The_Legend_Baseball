@@ -1,6 +1,6 @@
 # 벤치에서 명예의 전당까지
 
-첫 유니폼부터 마지막 기립박수까지, 가상 선수 한 명의 야구 인생을 진행하는 한국어 웹 게임입니다. KBO·NPB·MLB·대만 CPBL의 58개 구단을 무대로 나만의 기록을 쌓습니다.
+고교 야구부나 아카데미에서 출발한 가상 선수 한 명의 야구 인생을 진행하는 한국어 웹 게임입니다. 아마추어 시즌을 마치면 KBO·NPB·MLB·대만 CPBL의 프로 무대에 도전합니다.
 
 ## 실행
 
@@ -24,16 +24,35 @@ npm run build
 ## 플레이 흐름
 
 1. 아바타를 고른 뒤 이름·등번호·국적과 타자 또는 투수 역할을 정합니다.
-2. KBO·NPB·MLB·CPBL 중 첫 무대와 구단을 고릅니다.
+2. 시작 국가를 정하고 한국·일본·대만·미국의 고교 야구부 또는 도미니카공화국·베네수엘라의 야구 아카데미를 고릅니다.
 3. 플레이 스타일과 집중 육성 능력치 최대 두 개를 선택합니다.
 4. 시즌 준비 화면에서 훈련과 시즌 운영을 정하고 시즌을 진행합니다.
 5. 성적·능력치 변화·주요 사건과 가상 언론·팬 반응을 확인합니다.
-6. 계약 제안을 비교하고 다음 시즌이나 새로운 리그로 이어갑니다.
+6. 아마추어 3시즌을 마치면 첫 프로 계약을 고릅니다. 프로에서 활약하면 다른 리그의 계약 제안도 받을 수 있습니다.
 7. 은퇴 후 커리어 카드와 게임 내 통합 명예의 전당 결과를 확인합니다.
 
-신인은 18세·OVR 45에서 시작합니다. 타자는 컨택·파워·선구안·주루·수비·송구, 투수는 구속·구위·제구·변화구·스태미나·회복을 사용합니다. 선수는 모두 가상이며 실제 선수 명단을 재현하지 않습니다.
+신인은 16세·OVR 45에서 시작합니다. 타자는 컨택·파워·선구안·주루·수비·송구, 투수는 구속·구위·제구·변화구·스태미나·회복을 사용합니다. 선수는 모두 가상이며 실제 선수 명단을 재현하지 않습니다.
 
 ## 현재 게임 범위
+
+아마추어 시작 소속은 총 5,048곳입니다. 학교와 아카데미 이름은 한글로 표시하며, 검색창에는 한글 이름·원어 이름·지역을 입력할 수 있습니다. 아마추어 기록과 프로 통산 성적은 따로 집계합니다. 첫 프로 계약은 시작 국가에 따라 KBO(한국), NPB(일본), CPBL(대만), MLB(미국·도미니카공화국·베네수엘라)에서 받습니다.
+
+| 국가 | 소속 수 | 명단 범위 |
+| --- | ---: | --- |
+| 한국 | 78 | [2026 봉황대기 참가 고교 야구부](https://bonghwang.hankookilbo.com/school/) |
+| 일본 | 3,608 | [2026 여름 선수권 49개 지역대회](https://smart.asahi.com/v/koshien/stats/summer/y2026.php), 47개 도도부현 |
+| 대만 | 41 | [114학년도 경식 목재배트 리그](https://www.ctsbf.edu.tw/goods-team_list.html?id=160) 참가교 |
+| 미국 | 1,230 | [텍사스 UIL 2026–27 편성표](https://www.uiltexas.org/baseball/alignments)와 기존 캘리포니아·조지아 고교 |
+| 도미니카공화국 | 53 | [MLB 트레이너 파트너십](https://www.mlb.com/trainer-partnership/dominican-republic) 아카데미 |
+| 베네수엘라 | 38 | [MLB 트레이너 파트너십](https://www.mlb.com/trainer-partnership/venezuela) 아카데미 |
+
+일본 학교의 한글 표기는 일본어 학교명 읽기 자료를 바탕으로 정리했습니다. 원래의 대회 표기와 검색 별칭도 저장합니다. [주오대학 고교 코드표](https://www.chuo-u.ac.jp/uploads/2026/06/5554_%E9%AB%98%E6%A0%A1%E3%82%B3%E3%83%BC%E3%83%89.pdf)
+
+교표와 아카데미 로고 93개를 로컬 WebP로 제공하며, 선택 후 출처를 열 수 있습니다. 국내 학교 78곳의 교표는 [봉황대기 공식 참가팀 명단](https://bonghwang.hankookilbo.com/school/)을, 해외 항목은 [개별 이미지 출처 기록](lib/amateur-marks.ts)을 참고했습니다. 해당 이미지가 없는 소속에는 기본 표식을 표시합니다.
+
+- [요코하마스이란](https://commons.wikimedia.org/wiki/File:YokohamaSuiran_badge.jpg) · Myopia · [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/)
+- [주에쓰](https://commons.wikimedia.org/wiki/File:%E4%B8%AD%E8%B6%8A%E9%AB%98%E7%AD%89%E5%AD%A6%E6%A0%A1%E3%83%BB%E6%A0%A1%E7%AB%A0.jpg) · Rebirth10 · [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/)
+- [나가오카상업](https://commons.wikimedia.org/wiki/File:Nagaoka_Syougyo_High_School_Kousyo.jpg) · 新潟県立長岡商業高等学校 · [퍼블릭 도메인](https://creativecommons.org/publicdomain/mark/1.0/)
 
 | 리그 | 구단 수 | 게임 내 정규시즌 경기 수 |
 | --- | ---: | ---: |
@@ -68,8 +87,9 @@ npm run build
 - `components/`: 선수 생성과 공통 UI
 - `lib/game-types.ts`: 선수·기록·시즌·계약 타입
 - `lib/game.ts`: 경기·성장·계약·은퇴·저장 검증 엔진
+- `lib/amateur.ts`: 시작 국가 규칙과 고교 야구부·아카데미 목록 및 출처
 - `lib/leagues.ts`: 네 리그와 구단 데이터, 공식 데이터 출처
 - `public/`: 오리지널 SVG 야구장·선수 일러스트와 아이콘
 - `scripts/test-game.mjs`: 엔진과 저장 무결성 검증
 
-구단·리그 명칭의 권리는 각 권리자에게 있습니다. 공식 로고를 재사용하지 않고 자체 텍스트 모노그램과 벡터 일러스트를 사용합니다.
+구단·리그 명칭과 교표·로고의 권리는 각 권리자에게 있습니다. 프로 구단 표식은 자체 텍스트 모노그램으로 표시합니다.
