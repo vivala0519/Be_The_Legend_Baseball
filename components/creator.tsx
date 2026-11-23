@@ -7,6 +7,7 @@ import { AmateurMark, Avatar, Modal } from "@/components/game-ui";
 import { AffiliationPicker, CreatorSelect } from "@/components/creator-pickers";
 import { AMATEUR_COUNTRIES, AMATEUR_COUNTRY_CODES, getAmateurAffiliations, type AmateurCountry } from "@/lib/amateur";
 import { getAmateurMark } from "@/lib/amateur-marks";
+import { AVATAR_OPTIONS_BY_ROLE } from "@/lib/avatars";
 import { ATTRIBUTE_LABELS, BATTER_ATTRIBUTES, PITCHER_ATTRIBUTES, createCareer, getOverall } from "@/lib/game";
 import type { CreateCareerInput, PlayerRole } from "@/lib/game-types";
 import { getLeague, teamsForLeague, type LeagueId } from "@/lib/leagues";
@@ -21,6 +22,7 @@ interface CreatorProps {
 const PITCHER_POSITIONS = [
   { value: "SP", label: "선발 투수" }, { value: "RP", label: "불펜 투수" }, { value: "CP", label: "마무리 투수" },
 ] as const;
+const ROLE_LABELS = { batter: "타자", pitcher: "투수" };
 const INITIAL_COUNTRY: Record<LeagueId, AmateurCountry> = { KBO: "KR", NPB: "JP", MLB: "US", CPBL: "TW" };
 const COUNTRY_OPTIONS = AMATEUR_COUNTRY_CODES.map(code => ({
   value: code, label: AMATEUR_COUNTRIES[code].label, icon: AMATEUR_COUNTRIES[code].flag,
@@ -44,6 +46,7 @@ const CTA = ["이 아바타로 할게요", "다음", "이 스타일로 할게요
 export default function Creator({ initialLeague, onClose, onCreate, hasCareer }: CreatorProps) {
   const id = useId();
   const nameRef = useRef<HTMLInputElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const [step, setStep] = useState(0);
   const [name, setName] = useState("");
   const [number, setNumber] = useState("7");
@@ -51,13 +54,18 @@ export default function Creator({ initialLeague, onClose, onCreate, hasCareer }:
   const [role, setRole] = useState<PlayerRole>("batter");
   const [position, setPosition] = useState("CF");
   const [hand, setHand] = useState("우투우타");
-  const [avatar, setAvatar] = useState(0);
+  const [avatars, setAvatars] = useState<Record<PlayerRole, number>>({
+    batter: AVATAR_OPTIONS_BY_ROLE.batter[0].id,
+    pitcher: AVATAR_OPTIONS_BY_ROLE.pitcher[0].id,
+  });
   const [countryCode, setCountryCode] = useState(INITIAL_COUNTRY[initialLeague]);
   const [affiliationId, setAffiliationId] = useState("");
   const [style, setStyle] = useState("contact");
   const [training, setTraining] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [confirm, setConfirm] = useState(false);
+  const avatarOptions = AVATAR_OPTIONS_BY_ROLE[role];
+  const avatar = avatars[role];
   const attributes = role === "batter" ? BATTER_ATTRIBUTES : PITCHER_ATTRIBUTES;
   const positions = role === "batter" ? BATTER_POSITIONS : PITCHER_POSITIONS;
   const positionName = positions.find(option => option.value === position)?.label ?? position;
@@ -79,7 +87,7 @@ export default function Creator({ initialLeague, onClose, onCreate, hasCareer }:
   function toStep(next: number) {
     setError("");
     setStep(next);
-    window.scrollTo({ top: 0, behavior: "instant" });
+    if (contentRef.current) contentRef.current.scrollTop = 0;
   }
 
   function changeRole(next: PlayerRole) {
@@ -152,25 +160,44 @@ export default function Creator({ initialLeague, onClose, onCreate, hasCareer }:
     </header>
 
     <form onSubmit={event => { event.preventDefault(); nextStep(); }} noValidate>
-      <div className="creator-content">
+      <div className="creator-content" ref={contentRef}>
         <div className="creator-heading">
-          <p>{step === 0 ? "나의 야구 인생을 시작해요" : step === 1 ? `${country.startAge}세, 아마추어 선수로 시작해요` : step === 2 ? `${name} · ${positionName}` : `${styleName} · OVR ${getOverall(selected.player)}`}</p>
+          <p>{step === 0 ? "나의 야구 인생을 시작해요" : step === 1 ? `${country.startAge}세 · 아마추어 ${ROLE_LABELS[role]}` : step === 2 ? `${name} · ${positionName}` : `${styleName} · OVR ${getOverall(selected.player)}`}</p>
           <h1>{step === 0 ? "선수의 모습을 골라 주세요" : step === 1 ? "어떤 선수로 살아볼까요?" : step === 2 ? <>플레이 스타일을<br />골라 주세요</> : <>집중해서 키울 능력치를<br />골라 주세요</>}</h1>
           {step === 2 && <p>세 후보 모두 OVR 45에서 시작하고, 능력치 분포만 달라요.</p>}
           {step === 3 && <p>최대 2개까지 고를 수 있어요. 고른 능력치에 훈련을 집중합니다.</p>}
         </div>
 
         {step === 0 && <div className="creator-avatar-step">
-          <div className="creator-avatar-preview"><Avatar avatar={avatar} /><h2>내 선수의 모습</h2></div>
-          <div className="creator-avatar-options" aria-label="선수 아바타">
-            {[0, 1, 2, 3].map(value => <button type="button" key={value} aria-label={`아바타 ${value + 1}`} aria-pressed={avatar === value} className={avatar === value ? "selected" : ""} onClick={() => setAvatar(value)}><Avatar avatar={value} small />{avatar === value && <span className="creator-avatar-check"><Check size={13} /></span>}</button>)}
+          <fieldset className="creator-role-field">
+            <legend className="sr-only">선수 유형</legend>
+            <div className="segmented">
+              {(["batter", "pitcher"] as const).map(option => <button type="button" key={option}
+                className={role === option ? "selected" : ""} aria-pressed={role === option} onClick={() => changeRole(option)}>
+                {ROLE_LABELS[option]}
+              </button>)}
+            </div>
+          </fieldset>
+          <div className="creator-avatar-preview">
+            <div className="creator-avatar-stage" aria-hidden="true"><Avatar avatar={avatar} /></div>
           </div>
+          <fieldset className="creator-avatar-options">
+            <legend className="sr-only">선수 아바타</legend>
+            {avatarOptions.map(option => <label className="creator-avatar-option" key={option.id}>
+              <input className="sr-only" type="radio" name={`${id}-avatar`} value={option.id}
+                checked={avatar === option.id} onChange={() => setAvatars(previous => ({ ...previous, [role]: option.id }))} />
+              <span className="creator-avatar-tile" aria-hidden="true">
+                <Avatar avatar={option.id} small />
+                {avatar === option.id && <span className="creator-avatar-check"><Check size={12} strokeWidth={3} /></span>}
+              </span>
+              <span className="sr-only">{option.label}</span>
+            </label>)}
+          </fieldset>
         </div>}
 
         {step === 1 && <div className="creator-profile-form">
           <label className="field-label" htmlFor={`${id}-name`}>이름<input id={`${id}-name`} ref={nameRef} autoFocus maxLength={16} required autoComplete="off" value={name} onChange={event => { setName(event.target.value); setError(""); }} placeholder=" " aria-invalid={!!error && !name.trim()} aria-describedby={error ? `${id}-error` : undefined} /></label>
           <label className="field-label" htmlFor={`${id}-number`}>등번호<input id={`${id}-number`} type="number" inputMode="numeric" min={0} max={99} step={1} value={number} onChange={event => { setNumber(event.target.value); setError(""); }} /></label>
-          <fieldset className="creator-role-field"><legend>선수 유형</legend><div className="segmented"><button type="button" className={role === "batter" ? "selected" : ""} aria-pressed={role === "batter"} onClick={() => changeRole("batter")}>타자</button><button type="button" className={role === "pitcher" ? "selected" : ""} aria-pressed={role === "pitcher"} onClick={() => changeRole("pitcher")}>투수</button></div></fieldset>
           {role === "batter"
             ? <BatterPositionPicker value={position} onChange={setPosition} />
             : <CreatorSelect label="포지션" value={position} options={PITCHER_POSITIONS} onChange={setPosition} />}
@@ -183,9 +210,7 @@ export default function Creator({ initialLeague, onClose, onCreate, hasCareer }:
           }} />
           <AffiliationPicker key={countryCode} label={affiliationLabel} choices={affiliations} selected={affiliation}
             describedBy={`${id}-amateur-route`} onChange={value => { setAffiliationId(value); setError(""); }} />
-          <p className="muted small" id={`${id}-amateur-route`}>아마추어 {country.seasons}시즌 뒤 {proLeague.name} 드래프트에 참가해요. 미지명되면 대학에 진학해요.
-            {affiliationMark && <> <a className="creator-mark-source" href={affiliationMark.sourceUrl} target="_blank" rel="noreferrer" title={[affiliationMark.attribution, affiliationMark.license].filter(Boolean).join(" · ")}>{affiliation?.kind === "academy" ? "로고 출처" : "교표 출처"}</a></>}
-          </p>
+          <p className="muted small" id={`${id}-amateur-route`}>{country.startAge + country.seasons - 1}세 시즌을 마치면 {proLeague.name} 신인 드래프트에 참가해요. 미지명되면 대학별 합격 결과를 확인해요.</p>
         </div>}
 
         {step === 2 && <div className="creator-style-cards" aria-label="플레이 스타일">

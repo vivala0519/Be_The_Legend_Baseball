@@ -32,12 +32,12 @@ interface AmateurCountryConfig {
 
 // Season lengths and professional destinations are rules of this simulation.
 export const AMATEUR_COUNTRIES: Record<AmateurCountry, AmateurCountryConfig> = {
-  KR: { label: "대한민국", flag: "🇰🇷", kind: "school", startAge: 16, seasons: 3, games: 32, leagueName: "한국 고교야구", leagueId: "KBO" },
-  JP: { label: "일본", flag: "🇯🇵", kind: "school", startAge: 16, seasons: 3, games: 34, leagueName: "일본 고교야구", leagueId: "NPB" },
-  US: { label: "미국", flag: "🇺🇸", kind: "school", startAge: 16, seasons: 3, games: 36, leagueName: "미국 고교야구", leagueId: "MLB" },
-  TW: { label: "대만", flag: "🇹🇼", kind: "school", startAge: 16, seasons: 3, games: 32, leagueName: "대만 고교야구", leagueId: "CPBL" },
-  DO: { label: "도미니카공화국", flag: "🇩🇴", kind: "academy", startAge: 16, seasons: 3, games: 34, leagueName: "도미니카공화국 아카데미 야구", leagueId: "MLB" },
-  VE: { label: "베네수엘라", flag: "🇻🇪", kind: "academy", startAge: 16, seasons: 3, games: 34, leagueName: "베네수엘라 아카데미 야구", leagueId: "MLB" },
+  KR: { label: "대한민국", flag: "🇰🇷", kind: "school", startAge: 17, seasons: 3, games: 32, leagueName: "한국 고교야구", leagueId: "KBO" },
+  JP: { label: "일본", flag: "🇯🇵", kind: "school", startAge: 17, seasons: 3, games: 34, leagueName: "일본 고교야구", leagueId: "NPB" },
+  US: { label: "미국", flag: "🇺🇸", kind: "school", startAge: 17, seasons: 3, games: 36, leagueName: "미국 고교야구", leagueId: "MLB" },
+  TW: { label: "대만", flag: "🇹🇼", kind: "school", startAge: 17, seasons: 3, games: 32, leagueName: "대만 고교야구", leagueId: "CPBL" },
+  DO: { label: "도미니카공화국", flag: "🇩🇴", kind: "academy", startAge: 17, seasons: 3, games: 34, leagueName: "도미니카공화국 아카데미 야구", leagueId: "MLB" },
+  VE: { label: "베네수엘라", flag: "🇻🇪", kind: "academy", startAge: 17, seasons: 3, games: 34, leagueName: "베네수엘라 아카데미 야구", leagueId: "MLB" },
 };
 
 type AffiliationRow = [key: string, name: string, region: string, nativeName?: string];

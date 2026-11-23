@@ -36,9 +36,14 @@ export type DraftResult =
   | { status: 'undrafted'; leagueId: LeagueId }
   | { status: 'drafted'; leagueId: LeagueId; teamId: string; round: number; pick: number; overallPick: number };
 
+export type CollegeAdmission =
+  | { affiliationId: string; status: 'accepted' }
+  | { affiliationId: string; status: 'rejected'; reason: 'position' | 'performance' };
+
 export type AmateurSeasonResult = Omit<SeasonResult, 'leagueId' | 'teamId' | 'salary'> & {
   affiliationId: string;
   draft?: DraftResult;
+  admissions?: CollegeAdmission[];
 };
 
 export interface AmateurCareer {

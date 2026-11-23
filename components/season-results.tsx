@@ -94,12 +94,12 @@ export function SeasonResultView({ result: s, onDetail }: { result: PlayedSeason
   </section>;
 }
 
-export function SeasonDetail({ result: s }: { result: PlayedSeason }) {
+export function SeasonDetail({ result: s, showDraft = true }: { result: PlayedSeason; showDraft?: boolean }) {
   const rates = statsRates(s.stats);
   const batter = s.role === "batter";
   const team = seasonTeam(s);
   const amateur = "affiliationId" in s;
-  const draft = amateur ? s.draft : undefined;
+  const draft = amateur && showDraft ? s.draft : undefined;
   const recentGames = s.games.filter(game => game.stats.g > 0).slice(-15).reverse();
   const cells: [string, string | number][] = batter
     ? [["경기", s.stats.g], ["타석", s.stats.pa], ["타수", s.stats.ab], ["안타", s.stats.h], ["2루타", s.stats.doubles], ["3루타", s.stats.triples], ["홈런", s.stats.hr], ["타점", s.stats.rbi], ["볼넷", s.stats.bb], ["삼진", s.stats.so], ["타율", decimal(rates.avg)], ["OPS", decimal(rates.ops)]]
