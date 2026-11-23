@@ -1,10 +1,17 @@
 import { LEAGUES, TEAMS, getLeague, getTeam, teamsForLeague } from './leagues';
-import { AMATEUR_COUNTRIES, getAmateurAffiliation, getAmateurAffiliations } from './amateur';
+import { AMATEUR_COUNTRIES, getAmateurAffiliation, getAmateurAffiliations, getSchoolOpponent, getSchoolScheduleOpponents } from './amateur';
 import type { AmateurAffiliation, AmateurCountry } from './amateur';
-import { COLLEGE_COMPETITIONS, COLLEGE_SEASONS, getCollegeAffiliation, getCollegeAffiliations } from './amateur-college';
+import { COLLEGE_COMPETITIONS, COLLEGE_SEASONS, getCollegeAffiliation, getCollegeAffiliations, getCollegeScheduleOpponents } from './amateur-college';
 import type { CollegeAffiliation, CollegeBaseballTier } from './amateur-college';
+import { getAmateurCompetition, getCollegeCompetitions, getSchoolCompetitions } from './amateur-competitions';
+import type { AmateurCompetitionId, ScheduledCompetition, ScheduledCompetitionDefinition } from './amateur-competitions';
+import { getAcademyCompetitionRegion } from './youth-competitions-academy';
+import { getJapanSchoolBlock } from './youth-competitions-asia';
+import { CALIFORNIA_STATE_FINAL_OPPONENTS } from './youth-competitions-us';
 import { MAX_AVATAR_ID } from './avatars';
-import type { ActiveAmateurCareer, AmateurSeasonResult, Attributes, Career, CareerEvent, CareerTotals, CollegeAdmission, CreateCareerInput, DraftResult, GameSummary, LeagueId, Offer, Player, ProfessionalCareer, SeasonResult, StatRates, Stats } from './game-types';
+import { KOREAN_HIGH_SCHOOL_COMPETITIONS, KOREAN_HIGH_SCHOOL_KNOCKOUT_ROUNDS } from './korean-high-school-competitions';
+import type { KoreanHighSchoolCompetition, KoreanHighSchoolCompetitionId } from './korean-high-school-competitions';
+import type { ActiveAmateurCareer, AmateurCompetitionResult, AmateurSeasonResult, Attributes, Career, CareerEvent, CareerTotals, CollegeAdmission, CreateCareerInput, DraftResult, GameSummary, AmateurCompetitionOutcome, LeagueId, NewsItem, Offer, Player, ProfessionalCareer, SeasonResult, StatRates, Stats } from './game-types';
 
 export * from './game-types';
 export const HALL_THRESHOLD = 350;
@@ -251,19 +258,32 @@ interface Competition {
   allowsDraws: boolean;
 }
 
-function simulateGame(career: Career, competition: Competition, number: number, random: Random, injuredGames: number): GameSummary {
-  const opponentId = competition.opponentIds[Math.floor((number - 1) / 3) % competition.opponentIds.length];
+interface GameFixture {
+  opponentId: string;
+  home: boolean;
+  utcDate?: number;
+  competitionId?: AmateurCompetitionId;
+  trackPlayer?: boolean;
+}
+
+function gameDateLabel(utcDate: number) {
+  const date = new Date(utcDate);
+  return `${date.getUTCMonth() + 1}.${String(date.getUTCDate()).padStart(2, '0')}`;
+}
+
+function simulateGame(career: Career, competition: Competition, number: number, random: Random, injuredGames: number, fixture?: GameFixture): GameSummary {
+  const opponentId = fixture?.opponentId ?? competition.opponentIds[Math.floor((number - 1) / 3) % competition.opponentIds.length];
   const stats = emptyStats();
   const isBatter = career.player.role === 'batter';
   const isReliever = /RP|CP|불펜|마무리|중간/i.test(career.player.position);
   const isCloser = /CP|마무리/i.test(career.player.position);
   const ovr = getOverall(career.player);
-  const home = Math.floor((number - 1) / 3) % 2 === 0;
+  const home = fixture?.home ?? Math.floor((number - 1) / 3) % 2 === 0;
   const baseRating = 47 + competition.level * 23;
   const teamRating = baseRating + (hash(competition.teamId) % 17 - 8);
   const opponentRating = baseRating + (hash(opponentId) % 17 - 8);
   const opportunity = clamp(.30 + (ovr - 45) * .018 + (career.season > 1 ? .04 : 0), .24, .97);
-  const available = number > injuredGames && career.health > 25;
+  const available = fixture?.trackPlayer !== false && number > injuredGames && career.health > 25;
   const playerBats = isBatter && available && random() < opportunity * (career.plan === 'rest' ? .86 : career.plan === 'aggressive' ? 1.08 : 1);
   const workloadPlan = career.plan === 'rest' ? .86 : career.plan === 'aggressive' ? 1.08 : 1;
   const pitcherScheduled = !isBatter && available && (isReliever
@@ -319,12 +339,13 @@ function simulateGame(career: Career, competition: Competition, number: number, 
     if (result === 'L' && stats.er > 0 && pitcherExitLead < 0) stats.l = 1;
     if (result === 'W' && isReliever && ours - theirs <= 3 && lastUserPitcherInning >= 8 && stats.outs >= 3) stats.sv = 1;
   }
-  const gameDate = new Date(Date.UTC(career.year, 2, 22 + Math.floor((number - 1) * 1.28)));
+  const gameDate = gameDateLabel(fixture?.utcDate ?? Date.UTC(career.year, 2, 22 + Math.floor((number - 1) * 1.28)));
   const headline = isBatter
     ? stats.hr >= 2 ? `멀티 홈런! ${stats.hr}홈런 ${stats.rbi}타점` : stats.hr ? `담장을 넘긴 한 방, ${stats.rbi}타점` : stats.h >= 3 ? `${stats.h}안타 맹타` : stats.h ? `${stats.h}안타 ${stats.rbi}타점` : stats.g ? '다음 타석을 준비합니다' : '벤치에서 경기를 지켜봤어요'
     : stats.so >= 10 ? `${stats.so}탈삼진, 마운드를 지배하다` : stats.sv ? '마지막 아웃, 세이브를 챙겼어요' : stats.w ? `${inningsLabel(stats.outs)}이닝 ${stats.er}자책, 승리투수` : stats.g ? `${inningsLabel(stats.outs)}이닝 ${stats.so}탈삼진` : '다음 등판을 준비합니다';
-  return { id: `${career.year}-${number}`, number, date: `${gameDate.getUTCMonth() + 1}.${String(gameDate.getUTCDate()).padStart(2, '0')}`,
-    opponentId, home, scoreFor: ours, scoreAgainst: theirs, result, stats, headline };
+  return { id: `${career.year}-${number}`, number, date: gameDate,
+    opponentId, home, scoreFor: ours, scoreAgainst: theirs, result, stats, headline,
+    ...(fixture?.competitionId && { competitionId: fixture.competitionId }) };
 }
 
 function seasonAwards(career: ProfessionalCareer, stats: Stats): string[] {
@@ -373,23 +394,74 @@ function event(career: Pick<Career, 'year' | 'events'>, title: string, text: str
   career.events.unshift({ id: `${career.year}-${career.events.length}-${hash(title)}`, year: career.year, title, text, kind });
   career.events = career.events.slice(0, 250);
 }
+export function getTransferEligibility(career: ProfessionalCareer) {
+  const serviceSeasons = career.history.filter(season => season.leagueId === career.leagueId).length;
+  const graduated = career.amateur?.college?.year === COLLEGE_SEASONS;
+  const faSeasonsRequired = graduated ? 7 : 8;
+  const postingSeasonsRequired = 7;
+  return {
+    serviceSeasons, faSeasonsRequired, postingSeasonsRequired,
+    canUseFA: serviceSeasons >= faSeasonsRequired && career.contractYears === 0,
+    canUsePosting: serviceSeasons >= postingSeasonsRequired,
+  };
+}
+
+export function getTransferOfferKind(career: ProfessionalCareer, offer: Pick<Offer, 'teamId' | 'leagueId'>) {
+  if (offer.leagueId === career.leagueId && offer.teamId === career.teamId) return 'stay';
+  const { canUseFA, canUsePosting } = getTransferEligibility(career);
+  if (canUseFA) return 'fa';
+  if (offer.leagueId !== career.leagueId && canUsePosting) return 'posting';
+  return undefined;
+}
+
+function stayOffer(career: ProfessionalCareer, proposedSalary: number, canUseFA: boolean): Offer {
+  const overall = getOverall(career.player);
+  const underContract = career.contractYears > 0;
+  return {
+    id: `stay-${career.year}`, leagueId: career.leagueId, teamId: career.teamId,
+    salary: underContract ? career.salary : Math.max(career.salary, proposedSalary),
+    years: underContract ? career.contractYears : canUseFA && career.player.age < 35 ? 2 : 1,
+    role: overall >= 75 ? '핵심 선수' : overall >= 57 ? '주전 경쟁' : '육성 선수',
+    description: underContract ? '현재 계약 조건으로 다음 시즌을 준비합니다.' : '원소속 구단에서 재계약을 제안했어요.',
+    isCurrent: true,
+  };
+}
+
+export function getProfessionalOffseasonOffers(career: ProfessionalCareer): Offer[] {
+  if (career.phase !== 'offseason') return [];
+  const { canUseFA } = getTransferEligibility(career);
+  // Older saves may already contain offers made before transfer eligibility was checked.
+  const current = career.offers.find(offer => offer.teamId === career.teamId && offer.leagueId === career.leagueId);
+  const stay = stayOffer(career, current?.salary ?? career.salary, canUseFA);
+  const ids = new Set([stay.id]);
+  const offers = [stay];
+  for (const offer of career.offers) {
+    const kind = getTransferOfferKind(career, offer);
+    if (!kind || kind === 'stay' || ids.has(offer.id)) continue;
+    ids.add(offer.id);
+    offers.push(offer.isCurrent ? { ...offer, isCurrent: false } : offer);
+  }
+  return offers;
+}
+
 function createOffers(career: ProfessionalCareer, random: Random): Offer[] {
   const overall = getOverall(career.player);
   const maxSalary: Record<LeagueId, number> = { KBO: 200000, NPB: 350000, MLB: 2200000, CPBL: 80000 };
   const value = (leagueId: LeagueId) => Math.round(clamp(INITIAL_SALARY[leagueId] * Math.pow(Math.max(.9, (overall - 30) / 20), 2.75) * (leagueId === 'MLB' ? 2.8 : 1) * (.9 + random() * .25), INITIAL_SALARY[leagueId], maxSalary[leagueId]) / 100) * 100;
-  const offers: Offer[] = [{ id: `stay-${career.year}`, leagueId: career.leagueId, teamId: career.teamId,
-    salary: Math.max(career.salary, value(career.leagueId)), years: career.player.age >= 35 ? 1 : 2,
-    role: overall >= 75 ? '핵심 선수' : overall >= 57 ? '주전 경쟁' : '육성 선수', description: '익숙한 유니폼, 계속되는 도전', isCurrent: true }];
-  const domestic = teamsForLeague(career.leagueId).filter(team => team.id !== career.teamId);
-  const domesticTeam = pick(domestic, random);
-  offers.push({ id: `domestic-${career.year}`, leagueId: career.leagueId, teamId: domesticTeam.id, salary: value(career.leagueId), years: career.player.age >= 35 ? 1 : 2,
-    role: overall >= 68 ? '주전 보장' : '주전 경쟁', description: '새로운 구장에서 더 많은 기회를', isCurrent: false });
+  const { canUseFA, canUsePosting } = getTransferEligibility(career);
+  const offers = [stayOffer(career, value(career.leagueId), canUseFA)];
+  if (canUseFA) {
+    const domesticTeam = pick(teamsForLeague(career.leagueId).filter(team => team.id !== career.teamId), random);
+    offers.push({ id: `domestic-${career.year}`, leagueId: career.leagueId, teamId: domesticTeam.id, salary: value(career.leagueId), years: career.player.age >= 35 ? 1 : 2,
+      role: overall >= 68 ? '주전 보장' : '새로운 도전', description: '같은 리그 구단에서 보내온 FA 제안', isCurrent: false });
+  }
+  if (!canUseFA && !canUsePosting) return offers;
   const thresholds: Record<LeagueId, number> = { CPBL: 45, KBO: 55, NPB: 65, MLB: 77 };
   for (const league of LEAGUES) {
     if (league.id === career.leagueId || overall < thresholds[league.id] || career.player.age >= 39) continue;
     const team = pick(teamsForLeague(league.id), random);
     offers.push({ id: `abroad-${league.id}-${career.year}`, leagueId: league.id, teamId: team.id, salary: value(league.id), years: career.player.age >= 34 ? 1 : 3,
-      role: overall >= thresholds[league.id] + 12 ? '핵심 선수' : '새로운 도전', description: `${league.name}에서 보내온 영입 제안`, isCurrent: false });
+      role: overall >= thresholds[league.id] + 12 ? '핵심 선수' : '새로운 도전', description: `${league.name}에서 보내온 ${canUseFA ? '해외 FA' : '포스팅'} 제안`, isCurrent: false });
   }
   return offers;
 }
@@ -406,35 +478,428 @@ function amateurCompetition(affiliation: AmateurAffiliation | CollegeAffiliation
   };
 }
 
-function amateurSchedule(affiliation: AmateurAffiliation | CollegeAffiliation, year: number): Competition {
-  const competition = amateurCompetition(affiliation);
-  const opponentCount = Math.ceil(competition.games / 3);
-  const local: string[] = [], visiting: string[] = [];
-  for (const id of competition.opponentIds) {
-    const region = (affiliation.kind === 'college' ? getCollegeAffiliation(id) : getAmateurAffiliation(id))?.region;
-    (region === affiliation.region ? local : visiting).push(id);
-  }
-  const matchupSeed = `${affiliation.id}:${year}`;
-  function rotate(ids: string[], group: string) {
-    const offset = ids.length ? hash(`${matchupSeed}:${group}`) % ids.length : 0;
-    return ids.slice(offset).concat(ids.slice(0, offset));
-  }
-  return { ...competition, opponentIds: rotate(local, 'local').concat(rotate(visiting, 'visiting')).slice(0, opponentCount) };
+function gamesMissedToInjury(career: Career, gameCount: number, random: Random) {
+  const injuryRisk = .075 + career.fatigue / 1100 + (career.plan === 'aggressive' ? .075 : career.plan === 'rest' ? -.04 : 0);
+  return random() < injuryRisk ? Math.min(gameCount - 1, 6 + Math.floor(random() * 27)) : 0;
 }
 
-function playSchedule(career: Career, competition: Competition, random: Random) {
-  const injuryRisk = .075 + career.fatigue / 1100 + (career.plan === 'aggressive' ? .075 : career.plan === 'rest' ? -.04 : 0);
-  const injuredGames = random() < injuryRisk ? Math.min(competition.games - 1, 6 + Math.floor(random() * 27)) : 0;
-  const stats = emptyStats(), games: GameSummary[] = [];
+function summarizeGames(games: readonly GameSummary[]) {
+  const stats = emptyStats();
   let wins = 0, losses = 0, draws = 0;
-  for (let number = 1; number <= competition.games; number++) {
-    const game = simulateGame(career, competition, number, random, injuredGames);
-    games.push(game); addStats(stats, game.stats);
+  for (const game of games) {
+    addStats(stats, game.stats);
     if (game.result === 'W') wins++; else if (game.result === 'L') losses++; else draws++;
   }
   const winRate = wins / Math.max(1, wins + losses);
+  return { stats, wins, losses, draws, winRate };
+}
+
+function playSchedule(career: Career, competition: Competition, random: Random) {
+  const injuredGames = gamesMissedToInjury(career, competition.games, random);
+  const games: GameSummary[] = [];
+  for (let number = 1; number <= competition.games; number++) {
+    games.push(simulateGame(career, competition, number, random, injuredGames));
+  }
+  const { stats, wins, losses, draws, winRate } = summarizeGames(games);
   const rank = clamp(Math.round((.71 - winRate) / .41 * competition.opponentIds.length) + 1, 1, competition.opponentIds.length + 1);
   return { stats, games, injuredGames, winRate, teamRecord: { wins, losses, draws, rank } };
+}
+
+const WEEKEND_OPPONENTS = 6;
+const WEEKEND_GAMES = WEEKEND_OPPONENTS * 2;
+const KNOCKOUT_ROUND_COUNT = KOREAN_HIGH_SCHOOL_KNOCKOUT_ROUNDS.length;
+const DAY_IN_MS = 86_400_000;
+
+function koreanCompetitionDates(competition: KoreanHighSchoolCompetition, year: number): number[] {
+  const [startMonth, startDay] = competition.start;
+  const [endMonth, endDay] = competition.end;
+  const start = Date.UTC(year, startMonth - 1, startDay);
+  const end = Date.UTC(year, endMonth - 1, endDay);
+  if (competition.format === 'knockout') {
+    const days = (end - start) / DAY_IN_MS;
+    return KOREAN_HIGH_SCHOOL_KNOCKOUT_ROUNDS.map((_, index) => start + Math.floor(days * index / (KNOCKOUT_ROUND_COUNT - 1)) * DAY_IN_MS);
+  }
+
+  const weekendDays: number[] = [];
+  for (let date = start; date <= end; date += DAY_IN_MS) {
+    const day = new Date(date).getUTCDay();
+    if (day !== 0 && day !== 6) continue;
+    if (competition.id === 'weekend-first' && date >= Date.UTC(year, 2, 25) && date <= Date.UTC(year, 3, 12)) continue;
+    weekendDays.push(date);
+  }
+  return Array.from({ length: WEEKEND_GAMES }, (_, index) => weekendDays[Math.floor(index * (weekendDays.length - 1) / (WEEKEND_GAMES - 1))]);
+}
+
+function seededTeamOrder(opponents: readonly string[], seed: string) {
+  return opponents.map(id => ({ id, order: hash(`${seed}:${id}`) })).sort((a, b) => a.order - b.order).map(team => team.id);
+}
+
+function simulateCpuGame(career: Career, competition: Competition, teamId: string, opponentId: string, home: boolean, random: Random) {
+  return simulateGame(career, { ...competition, teamId }, 1, random, 0, { opponentId, home, trackPlayer: false });
+}
+
+interface LeagueStanding { id: string; points: number; runDifference: number; runs: number }
+
+function leagueStandings(career: Career, competition: Competition, opponents: string[], games: GameSummary[], random: Random, meetings = 2): LeagueStanding[] {
+  const teams = [competition.teamId, ...opponents];
+  const table = teams.map(id => ({ id, points: 0, runDifference: 0, runs: 0 }));
+  function score(team: LeagueStanding, scoreFor: number, scoreAgainst: number) {
+    team.points += scoreFor > scoreAgainst ? 2 : scoreFor === scoreAgainst ? 1 : 0;
+    team.runDifference += scoreFor - scoreAgainst;
+    team.runs += scoreFor;
+  }
+  for (const game of games) {
+    const opponent = table[teams.indexOf(game.opponentId)];
+    score(table[0], game.scoreFor, game.scoreAgainst);
+    score(opponent, game.scoreAgainst, game.scoreFor);
+  }
+  for (let meeting = 0; meeting < meetings; meeting += 2) {
+    for (let home = 1; home < table.length; home++) {
+      for (let away = 1; away < table.length; away++) {
+        if (home === away || (meeting + 1 === meetings && away < home)) continue;
+        const { scoreFor, scoreAgainst } = simulateCpuGame(career, competition, teams[home], teams[away], true, random);
+        score(table[home], scoreFor, scoreAgainst);
+        score(table[away], scoreAgainst, scoreFor);
+      }
+    }
+  }
+  return table;
+}
+
+function rankedTeams(table: readonly LeagueStanding[]) {
+  return [...table].sort((a, b) => b.points - a.points || b.runDifference - a.runDifference || b.runs - a.runs
+    || a.id.localeCompare(b.id)).map(team => team.id);
+}
+
+function canPlayKoreanCup(id: KoreanHighSchoolCompetitionId, firstRank: number, secondRank: number, emartWins: number) {
+  if (id === 'golden-lion') return [1, 2, 4].includes(firstRank);
+  if (id === 'blue-dragon') return [1, 3, 5].includes(firstRank);
+  if (id === 'president') return (secondRank > 0 && secondRank <= 2) || emartWins >= 2;
+  return true;
+}
+
+function koreanCompetitionResult(definition: KoreanHighSchoolCompetition, games: GameSummary[], leagueRank: number): AmateurCompetitionResult {
+  const { stats, wins, losses, draws } = summarizeGames(games);
+  let outcome: AmateurCompetitionOutcome;
+  let rank = leagueRank;
+  if (definition.format === 'league') outcome = { kind: 'ranked', rank };
+  else if (!games.length) outcome = { kind: 'notQualified' };
+  else if (wins === KNOCKOUT_ROUND_COUNT) {
+    rank = 1;
+    outcome = { kind: 'champion' };
+  } else {
+    rank = 2 ** (KNOCKOUT_ROUND_COUNT - games.length) + 1;
+    outcome = { kind: 'eliminated', round: KOREAN_HIGH_SCHOOL_KNOCKOUT_ROUNDS[games.length - 1] };
+  }
+  return { id: definition.id, stats, teamRecord: { wins, losses, draws, rank }, outcome };
+}
+
+function playKoreanHighSchoolSeason(career: ActiveAmateurCareer, affiliation: AmateurAffiliation, random: Random) {
+  const league = amateurCompetition(affiliation);
+  const cup = { ...league, allowsDraws: false };
+  const seed = `${affiliation.id}:${career.year}`;
+  const ordered = seededTeamOrder(league.opponentIds, `${seed}:weekend`);
+  const local = ordered.filter(id => getAmateurAffiliation(id)?.region === affiliation.region);
+  const weekendOpponents = [...local, ...ordered.filter(id => !local.includes(id))].slice(0, WEEKEND_OPPONENTS);
+  const minimumGames = WEEKEND_GAMES * 2 + 2; // Both league halves and the two open cups.
+  const injuredGames = gamesMissedToInjury(career, minimumGames, random);
+  const games: GameSummary[] = [];
+  const competitionGames = new Map<KoreanHighSchoolCompetitionId, GameSummary[]>();
+  const tables = new Map<KoreanHighSchoolCompetitionId, LeagueStanding[]>();
+  const ranks = new Map<KoreanHighSchoolCompetitionId, number>();
+  const brackets = new Map<KoreanHighSchoolCompetitionId, string[]>();
+  const calendar = KOREAN_HIGH_SCHOOL_COMPETITIONS.flatMap(definition => koreanCompetitionDates(definition, career.year)
+    .map((utcDate, index) => ({ definition, utcDate, index }))).sort((a, b) => a.utcDate - b.utcDate);
+
+  for (const { definition, utcDate, index } of calendar) {
+    const { id, format } = definition;
+    const results = competitionGames.get(id) ?? [];
+    const cpuRandom = randomGenerator({ seed: hash(`${seed}:${id}:${index}:cpu`) });
+    const play = (competition: Competition, opponentId: string, home: boolean) => {
+      const game = simulateGame(career, competition, games.length + 1, random, injuredGames, { opponentId, home, utcDate, competitionId: id });
+      games.push(game);
+      results.push(game);
+      competitionGames.set(id, results);
+      return game.result;
+    };
+
+    if (format === 'league') {
+      play(league, weekendOpponents[index % WEEKEND_OPPONENTS], (index < WEEKEND_OPPONENTS) === (index % 2 === 0));
+      if (index === WEEKEND_GAMES - 1) {
+        const table = leagueStandings(career, league, weekendOpponents, results, cpuRandom);
+        tables.set(id, table);
+        ranks.set(id, rankedTeams(table).indexOf(affiliation.id) + 1);
+      }
+      continue;
+    }
+
+    const emartWins = competitionGames.get('emart')?.filter(game => game.result === 'W').length ?? 0;
+    if (index === 0 && !canPlayKoreanCup(id, ranks.get('weekend-first') ?? 0, ranks.get('weekend-second') ?? 0, emartWins)) continue;
+    const alive = index === 0 ? [affiliation.id, ...seededTeamOrder(cup.opponentIds, `${seed}:${id}`).slice(0, 2 ** KNOCKOUT_ROUND_COUNT - 1)] : brackets.get(id);
+    if (!alive) continue;
+    if (play(cup, alive[1], cpuRandom() < .5) === 'L' || index === KNOCKOUT_ROUND_COUNT - 1) {
+      brackets.delete(id);
+      continue;
+    }
+
+    const winners = [affiliation.id];
+    for (let pair = 2; pair < alive.length; pair += 2) {
+      const game = simulateCpuGame(career, cup, alive[pair], alive[pair + 1], cpuRandom() < .5, cpuRandom);
+      winners.push(game.result === 'W' ? alive[pair] : alive[pair + 1]);
+    }
+    brackets.set(id, winners);
+  }
+
+  const competitions = KOREAN_HIGH_SCHOOL_COMPETITIONS.map(definition => koreanCompetitionResult(definition,
+    competitionGames.get(definition.id) ?? [], ranks.get(definition.id) ?? 0));
+  const first = tables.get('weekend-first')!;
+  const second = tables.get('weekend-second')!;
+  const combined = first.map((team, index) => ({ id: team.id, points: team.points + second[index].points,
+    runDifference: team.runDifference + second[index].runDifference, runs: team.runs + second[index].runs }));
+  const { stats, wins, losses, draws, winRate } = summarizeGames(games);
+  return { stats, games, injuredGames, winRate, competitions, teamRecord: { wins, losses, draws, rank: rankedTeams(combined).indexOf(affiliation.id) + 1 } };
+}
+
+type ScheduledKnockout = Extract<ScheduledCompetition, { format: 'knockout' }>;
+
+function knockoutWinsRequired(event: ScheduledKnockout, round: number) {
+  return event.seriesWins ?? (round === event.rounds ? event.finalWins : undefined) ?? 1;
+}
+
+function scheduledFixtureCount(event: ScheduledCompetition) {
+  if (event.format === 'league') return event.opponents * event.meetings;
+  return (event.rounds - 1) * (2 * knockoutWinsRequired(event, 1) - 1) + 2 * knockoutWinsRequired(event, event.rounds) - 1;
+}
+
+function scheduledFixtureDate(event: ScheduledCompetition, year: number, index: number) {
+  const [[startMonth, startDay], [endMonth, endDay]] = event.dates;
+  const calendarYear = year + (event.nextCalendarYear ? 1 : 0);
+  const start = Date.UTC(calendarYear, startMonth - 1, startDay);
+  const days = (Date.UTC(calendarYear, endMonth - 1, endDay) - start) / DAY_IN_MS;
+  return start + Math.floor(index * days / Math.max(1, scheduledFixtureCount(event) - 1)) * DAY_IN_MS;
+}
+
+function collegeProvince(id: string) {
+  return getCollegeAffiliation(id)?.region.split(' ')[0];
+}
+
+interface ScheduledStage {
+  games: GameSummary[];
+  result: AmateurCompetitionResult;
+  standings?: string[];
+}
+
+function qualifiedForScheduledStage(event: ScheduledCompetition, stages: ReadonlyMap<string, ScheduledStage>, teamId: string, previousSeason?: AmateurSeasonResult) {
+  const qualifier = event.qualification;
+  if (!qualifier) return true;
+  if ('rank' in qualifier && qualifier.previousSeason) {
+    const rank = previousSeason?.competitions?.find(result => result.id === qualifier.from)?.teamRecord.rank ?? 0;
+    return rank > 0 && rank <= qualifier.rank;
+  }
+  const previous = stages.get(qualifier.from);
+  if (!previous?.games.length) return false;
+  const { rank } = previous.result.teamRecord;
+  if ('rank' in qualifier) return rank <= qualifier.rank;
+
+  // The game uses U-League results against teams from the same province as trials.
+  const localGames = previous.games.filter(game => collegeProvince(game.opponentId) === collegeProvince(teamId));
+  return localGames.every(game => game.result === 'W' || (game.result === 'D' && rank <= 5));
+}
+
+function opponentsFromOtherGroups(ordered: readonly string[], ownGroup: string | undefined, groupOf: (team: string) => string | undefined) {
+  const groups = new Set([ownGroup]);
+  return ordered.filter(team => {
+    const group = groupOf(team);
+    if (groups.has(group)) return false;
+    groups.add(group);
+    return true;
+  });
+}
+
+const CALIFORNIA_NORTH_IDS = new Set(CALIFORNIA_STATE_FINAL_OPPONENTS.map(team => team.id));
+type ScheduledAffiliation = CollegeAffiliation | AmateurAffiliation;
+
+function youthStageField(field: ScheduledCompetition['field'], affiliation: AmateurAffiliation, ordered: string[]) {
+  const region = (id: string) => getSchoolOpponent(id)!.region;
+  const japanDistrict = (id: string) => getSchoolOpponent(id)!.sourceUrl;
+  const japanBlock = (id: string) => getJapanSchoolBlock(region(id));
+  const academyRegion = (id: string) => getAcademyCompetitionRegion(getSchoolOpponent(id)!);
+  switch (field) {
+    case 'local':
+      if (affiliation.country === 'US') return ordered.filter(team => !CALIFORNIA_NORTH_IDS.has(team));
+      return ordered.filter(team => region(team) === affiliation.region).concat(ordered.filter(team => region(team) !== affiliation.region));
+    case 'california-north':
+      return ordered.filter(team => CALIFORNIA_NORTH_IDS.has(team));
+    case 'japan-prefecture':
+      return ordered.filter(team => region(team) === affiliation.region);
+    case 'japan-summer-district':
+      return ordered.filter(team => japanDistrict(team) === affiliation.sourceUrl);
+    case 'japan-block':
+      return ordered.filter(team => japanBlock(team) === japanBlock(affiliation.id));
+    case 'japan-representatives':
+      return opponentsFromOtherGroups(ordered, affiliation.sourceUrl, japanDistrict);
+    case 'japan-block-representatives':
+      return opponentsFromOtherGroups(ordered, japanBlock(affiliation.id), japanBlock);
+    case 'academy-region':
+      return ordered.filter(team => academyRegion(team) === academyRegion(affiliation.id));
+    case 'academy-representatives':
+      return opponentsFromOtherGroups(ordered, academyRegion(affiliation.id), academyRegion);
+    default:
+      return ordered;
+  }
+}
+
+function scheduledStageOpponents(
+  event: ScheduledCompetition, affiliation: ScheduledAffiliation, opponentIds: readonly string[],
+  calendar: readonly ScheduledCompetitionDefinition[], stages: ReadonlyMap<string, ScheduledStage>, seed: string,
+) {
+  const { id, country } = affiliation;
+  const ordered = seededTeamOrder(opponentIds, seed);
+  const field = affiliation.kind === 'college' ? ordered : youthStageField(event.field, affiliation, ordered);
+  const qualifier = event.qualification;
+  if (qualifier && 'province' in qualifier) {
+    return opponentsFromOtherGroups(field, collegeProvince(id), collegeProvince);
+  }
+  if (event.format === 'league' && event.regional) {
+    const province = collegeProvince(id);
+    return field.filter(team => collegeProvince(team) === province).concat(field.filter(team => collegeProvince(team) !== province));
+  }
+  if (event.format === 'knockout' && event.nationalField) {
+    const local = new Set(getCollegeAffiliations(country).map(team => team.id));
+    return field.filter(team => !local.has(team));
+  }
+  if (!qualifier || !('rank' in qualifier) || qualifier.previousSeason) return field;
+  if (qualifier.sameField) {
+    const previous = stages.get(qualifier.from);
+    const qualified = previous?.standings?.slice(0, qualifier.rank) ?? previous?.games.map(game => game.opponentId) ?? [];
+    return field.filter(team => qualified.includes(team));
+  }
+  const defeated = new Set<string>();
+  let previous = calendar.find(stage => stage.id === qualifier.from);
+  while (previous?.format === 'knockout') {
+    for (const game of stages.get(previous.id)?.games ?? []) defeated.add(game.opponentId);
+    previous = calendar.find(stage => stage.id === previous?.qualification?.from);
+  }
+  return field.filter(team => !defeated.has(team));
+}
+
+function knockoutSeries(games: GameSummary[]) {
+  const rounds: GameSummary[][] = [];
+  for (const game of games) {
+    const previous = rounds.at(-1);
+    if (previous?.[0].opponentId === game.opponentId) previous.push(game);
+    else rounds.push([game]);
+  }
+  return rounds;
+}
+
+function scheduledStageResult(event: ScheduledCompetitionDefinition, games: GameSummary[], leagueRank: number): AmateurCompetitionResult {
+  const { stats, wins, losses, draws } = summarizeGames(games);
+  let rank = leagueRank;
+  let outcome: AmateurCompetitionOutcome = { kind: 'notQualified' };
+  if (games.length && event.format === 'league') {
+    outcome = event.title && rank === 1 ? { kind: 'champion' } : { kind: 'ranked', rank };
+  } else if (games.length && event.format === 'knockout') {
+    const rounds = knockoutSeries(games);
+    const roundsLeft = event.rounds - rounds.length;
+    const seriesWins = rounds.at(-1)!.filter(game => game.result === 'W').length;
+    const champion = roundsLeft === 0 && seriesWins === knockoutWinsRequired(event, event.rounds);
+    rank = champion ? 1 : 2 ** roundsLeft + 1;
+    if (champion) outcome = { kind: event.advanceOnWin ? 'advanced' : 'champion' };
+    else outcome = { kind: 'eliminated', round: KOREAN_HIGH_SCHOOL_KNOCKOUT_ROUNDS[KNOCKOUT_ROUND_COUNT - roundsLeft - 1] };
+  }
+  return { id: event.id, stats, teamRecord: { wins, losses, draws, rank }, outcome };
+}
+
+function playKnockoutSeries(winsRequired: number, play: () => GameSummary) {
+  let wins = 0, losses = 0;
+  while (wins < winsRequired && losses < winsRequired) {
+    if (play().result === 'W') wins++;
+    else losses++;
+  }
+  return wins === winsRequired;
+}
+
+function playScheduledKnockout(
+  event: ScheduledKnockout,
+  field: string[],
+  play: (opponent: string, home: boolean) => GameSummary,
+  cpuGame: (team: string, opponent: string, home: boolean) => GameSummary,
+  random: Random,
+) {
+  let alive = field;
+  for (let round = 1; round <= event.rounds; round++) {
+    const target = knockoutWinsRequired(event, round);
+    if (!playKnockoutSeries(target, () => play(alive[1], random() < .5)) || round === event.rounds) return;
+
+    const winners = [alive[0]];
+    for (let pair = 2; pair < alive.length; pair += 2) {
+      const won = playKnockoutSeries(target, () => cpuGame(alive[pair], alive[pair + 1], random() < .5));
+      winners.push(won ? alive[pair] : alive[pair + 1]);
+    }
+    alive = winners;
+  }
+}
+
+function scheduledSeasonCompetition(affiliation: ScheduledAffiliation): Competition {
+  const opponents = affiliation.kind === 'college' ? getCollegeScheduleOpponents(affiliation.country) : getSchoolScheduleOpponents(affiliation);
+  return {
+    ...amateurCompetition(affiliation),
+    opponentIds: opponents.filter(team => team.id !== affiliation.id).map(team => team.id),
+  };
+}
+
+function scheduledSeasonRank(calendar: readonly ScheduledCompetitionDefinition[], stages: ReadonlyMap<string, ScheduledStage>) {
+  const league = calendar.find(event => event.format === 'league' && stages.get(event.id)?.games.length);
+  return league ? stages.get(league.id)!.result.teamRecord.rank : 1;
+}
+
+function scheduledCalendar(affiliation: ScheduledAffiliation, schoolYear: number, age: number) {
+  return affiliation.kind === 'college' ? getCollegeCompetitions(affiliation.country) : getSchoolCompetitions(affiliation, schoolYear, age);
+}
+
+function playScheduledSeason(career: ActiveAmateurCareer, affiliation: ScheduledAffiliation, random: Random) {
+  const league = scheduledSeasonCompetition(affiliation);
+  const calendar = scheduledCalendar(affiliation, career.season, career.player.age);
+  const previousSeason = career.amateur.history.at(-1);
+  const minimumGames = calendar.filter(event => !event.qualification)
+    .reduce((count, event) => count + (event.format === 'league' ? scheduledFixtureCount(event) : 1), 0);
+  const injuredGames = gamesMissedToInjury(career, minimumGames, random);
+  const stages = new Map<string, ScheduledStage>();
+  const games: GameSummary[] = [];
+
+  for (const event of calendar) {
+    const pastGames: GameSummary[] = [];
+    let standings: string[] | undefined;
+    if (qualifiedForScheduledStage(event, stages, affiliation.id, previousSeason)) {
+      const seed = `${affiliation.id}:${career.year}:${event.id}`;
+      const opponents = scheduledStageOpponents(event, affiliation, league.opponentIds, calendar, stages, seed);
+      const cpuRandom = randomGenerator({ seed: hash(`${seed}:cpu`) });
+      const competition = { ...league, allowsDraws: event.format === 'league' && !event.noDraws };
+      const play = (opponentId: string, home: boolean) => {
+        const game = simulateGame(career, competition, games.length + 1, random, injuredGames,
+          { opponentId, home, utcDate: scheduledFixtureDate(event, career.year, pastGames.length), competitionId: event.id });
+        pastGames.push(game);
+        games.push(game);
+        return game;
+      };
+      if (event.format === 'league') {
+        const field = opponents.slice(0, event.opponents);
+        field.forEach((opponent, index) => {
+          for (let meeting = 0; meeting < event.meetings; meeting++) play(opponent, (index + meeting) % 2 === 0);
+        });
+        standings = rankedTeams(leagueStandings(career, competition, field, pastGames, cpuRandom, event.meetings));
+      } else {
+        const field = [affiliation.id, ...opponents.slice(0, 2 ** event.rounds - 1)];
+        playScheduledKnockout(event, field, play, (team, opponent, home) => simulateCpuGame(career, competition, team, opponent, home, cpuRandom), cpuRandom);
+      }
+    }
+    const rank = standings ? standings.indexOf(affiliation.id) + 1 : 0;
+    stages.set(event.id, { games: pastGames, standings, result: scheduledStageResult(event, pastGames, rank) });
+  }
+  const competitions = [...stages.values()].map(stage => stage.result);
+  const { stats, wins, losses, draws, winRate } = summarizeGames(games);
+  return { stats, games, injuredGames, winRate, competitions, teamRecord: { wins, losses, draws, rank: scheduledSeasonRank(calendar, stages) } };
 }
 
 function updateCondition(career: Career, stats: Stats, gameCount: number, injuredGames: number, winRate: number, awardCount: number) {
@@ -513,28 +978,64 @@ function recordCollegeAdmissions(career: ActiveAmateurCareer) {
   });
 }
 
+function amateurTitles(competitions: AmateurCompetitionResult[]) {
+  return competitions.filter(result => result.outcome.kind === 'champion').map(({ id }) => getAmateurCompetition(id)!.name);
+}
+
+function amateurCompetitionNews(affiliation: AmateurAffiliation | CollegeAffiliation, player: Player, season: ReturnType<typeof playScheduledSeason>, titles: string[]): NewsItem[] {
+  const { name, kind } = affiliation;
+  const league = season.competitions.find(result => getAmateurCompetition(result.id)?.format === 'league')!;
+  const secondHalf = season.competitions.find(result => result.id === 'weekend-second');
+  const leagueFinish = secondHalf ? `주말리그 전반기 ${league.teamRecord.rank}위·후반기 ${secondHalf.teamRecord.rank}위`
+    : `${getAmateurCompetition(league.id)!.name} ${league.teamRecord.rank}위`;
+  const { wins, losses, draws } = season.teamRecord;
+  const { stats } = season;
+  const recentGames = [...season.games].reverse();
+  const game = recentGames.find(match => match.scoreFor === match.scoreAgainst + 1)
+    ?? recentGames.find(match => match.result === 'W') ?? recentGames[0];
+  const opponent = (kind === 'college' ? getCollegeAffiliation(game.opponentId) : getSchoolOpponent(game.opponentId))?.name ?? '상대 팀';
+  const competition = getAmateurCompetition(game.competitionId!)!;
+  const gameReaction = game.scoreFor === game.scoreAgainst + 1 ? '한 점 차 승리라 손에 땀 났어요.'
+    : game.result === 'W' ? '이번 시즌에서 제일 기억에 남아요.'
+      : game.result === 'D' ? '끝내 승부가 안 났네요.' : '이 경기 결과가 아쉬웠어요.';
+  const { era, innings } = statsRates(stats);
+  const playerReaction = !stats.g ? `${player.name} 선수는 다음 시즌에 출전하는 모습을 보고 싶네요.`
+    : player.role === 'batter' ? `${player.name} 선수, ${stats.g}경기에서 ${stats.h}안타 ${stats.rbi}타점으로 시즌을 마쳤네요.`
+      : `${player.name} 선수, ${innings}이닝 동안 ${stats.so}탈삼진에 평균자책점 ${era.toFixed(2)}으로 마쳤네요.`;
+  return [
+    { source: kind === 'college' ? '대학야구 뉴스' : kind === 'school' ? '고교야구 뉴스' : '아카데미 야구 뉴스', title: titles.length ? `${name}, ${titles.join('·')} 우승`
+      : `${name}, ${leagueFinish}로 시즌 마감`, tone: titles.length ? 'positive' : 'neutral' },
+    { source: '@주말야구석', title: `${competition.name} ${opponent}전 ${game.scoreFor}대 ${game.scoreAgainst}. ${gameReaction}`, tone: game.result === 'W' ? 'positive' : 'neutral' },
+    { source: '@스코어북', title: playerReaction, tone: 'neutral' },
+    { source: '@덕아웃메모', title: `시즌 ${wins}승 ${losses}패${draws ? ` ${draws}무` : ''}. ${wins > losses ? '이긴 경기가 더 많았네요.' : wins < losses ? '다음 시즌에 다시 응원할게요.' : '승패가 같았네요.'}`, tone: wins > losses ? 'positive' : 'neutral' },
+  ];
+}
+
 function simulateAmateurSeason(career: ActiveAmateurCareer, random: Random): ActiveAmateurCareer {
   const college = career.amateur.college;
   const affiliation = college ? getCollegeAffiliation(college.affiliationId) : getAmateurAffiliation(career.amateur.affiliationId);
   if (!affiliation) throw new Error('현재 아마추어 소속을 확인할 수 없어요.');
-  const competition = amateurSchedule(affiliation, career.year);
-  const { stats, games, injuredGames, winRate, teamRecord } = playSchedule(career, competition, random);
+  const tournamentSeason = affiliation.country === 'KR' && affiliation.kind === 'school'
+    ? playKoreanHighSchoolSeason(career, affiliation, random) : playScheduledSeason(career, affiliation, random);
+  const { stats, games, injuredGames, winRate, teamRecord, competitions } = tournamentSeason;
   const overallBefore = getOverall(career.player);
-  const attributeGains = growPlayer(career, stats, competition.games, injuredGames, random);
+  const attributeGains = growPlayer(career, stats, games.length, injuredGames, random);
   const overallAfter = getOverall(career.player);
   const highlights = [`${affiliation.name} 소속으로 ${stats.g}경기에 출전했어요.`];
   if (overallAfter > overallBefore) highlights.push(`종합 능력치 ${overallBefore} → ${overallAfter}`);
   if (injuredGames) highlights.push(`부상으로 ${injuredGames}경기 동안 재활했어요.`);
   const config = AMATEUR_COUNTRIES[affiliation.country];
   const academicYear = college?.year ?? career.season;
+  const titles = amateurTitles(competitions);
+  const awards = titles.map(name => `${name} 우승`);
   const result: AmateurSeasonResult = {
     year: career.year, age: career.player.age, affiliationId: affiliation.id, role: career.player.role, stats,
-    overallBefore, overallAfter, attributeGains, teamRecord, awards: [], highlights, games, injuredGames, championship: false,
-    news: [{ source: '아마추어 야구 소식', title: `${affiliation.name}에서 보낸 ${career.player.name}의 ${academicYear}번째 시즌`, tone: 'neutral' }],
+    overallBefore, overallAfter, attributeGains, teamRecord, awards, highlights, games, injuredGames, championship: awards.length > 0,
+    news: amateurCompetitionNews(affiliation, career.player, tournamentSeason, titles), competitions,
   };
   career.amateur.history.push(result);
   event(career, '아마추어 시즌 마무리', highlights[0], 'development');
-  updateCondition(career, stats, competition.games, injuredGames, winRate, 0);
+  updateCondition(career, stats, games.length, injuredGames, winRate, awards.length);
   career.phase = 'offseason';
   if (college || academicYear === config.seasons) {
     recordDraft(career, result, config.leagueId);
@@ -645,12 +1146,14 @@ export function advanceOffseason(input: Career, selectionId?: string): Career {
     return career;
   }
   if (career.player.age >= 40) return retireCareer(career);
-  const offer = career.offers.find(offer => offer.id === selectionId) ?? career.offers[0];
-  if (offer) {
-    if (offer.teamId !== career.teamId) event(career, `${getTeam(offer.teamId).name}로 이적`, `${getLeague(offer.leagueId).name}에서 ${offer.role}의 기회를 잡았습니다.`, 'transfer');
-    career.leagueId = offer.leagueId; career.teamId = offer.teamId;
-    career.salary = offer.salary; career.contractYears = offer.years;
+  const offers = getProfessionalOffseasonOffers(career);
+  const offer = offers.find(offer => offer.id === selectionId) ?? offers[0];
+  if (offer.teamId !== career.teamId) {
+    const route = getTransferOfferKind(career, offer) === 'posting' ? '포스팅을 거쳐' : 'FA 계약으로';
+    event(career, `${getTeam(offer.teamId).name}로 이적`, `${route} ${getLeague(offer.leagueId).name}에서 ${offer.role}의 기회를 잡았습니다.`, 'transfer');
   }
+  career.leagueId = offer.leagueId; career.teamId = offer.teamId;
+  career.salary = offer.salary; career.contractYears = offer.years;
   prepareNextSeason(career);
   return career;
 }
@@ -664,19 +1167,23 @@ function prepareNextSeason(career: Career) {
 export function retireCareer(input: Career): Career {
   if (input.phase === 'retired') return clone(input);
   if (input.teamId === null) {
+    const voluntary = input.phase === 'ready';
     const result = input.amateur.history.at(-1);
-    if (input.phase !== 'offseason' || result?.draft?.status !== 'undrafted') return clone(input);
     const college = input.amateur.college;
-    const noAdmission = !college && result.admissions?.every(admission => admission.status === 'rejected');
-    if (!noAdmission && college?.year !== COLLEGE_SEASONS) return clone(input);
+    const noAdmission = !college && result?.admissions?.every(admission => admission.status === 'rejected');
+    if (!voluntary && (result?.draft?.status !== 'undrafted' || (!noAdmission && college?.year !== COLLEGE_SEASONS))) return clone(input);
 
     const career = clone(input);
-    const summary = noAdmission ? '프로 지명을 받지 못했고 합격한 대학도 없어 아마추어 야구 선수 생활을 마쳤습니다.'
-      : '대학 마지막 드래프트에서 지명되지 않아 아마추어 야구 선수 생활을 마쳤습니다.';
+    const summary = voluntary ? '스스로 아마추어 야구 선수 생활을 마무리했습니다.'
+      : noAdmission ? '프로 지명을 받지 못했고 합격한 대학도 없어 아마추어 야구 선수 생활을 마쳤습니다.'
+        : '대학 마지막 드래프트에서 지명되지 않아 아마추어 야구 선수 생활을 마쳤습니다.';
     event(career, '아마추어 커리어 종료', summary, 'retirement');
     return {
       ...career, phase: 'retired', amateur: { ...career.amateur, status: 'retired' },
-      retirement: { hallOfFame: false, title: '아마추어 커리어 종료', summary, score: 0, tier: 'journey' },
+      retirement: {
+        hallOfFame: false, title: '아마추어 커리어 종료', summary, score: 0, tier: 'journey',
+        ...(voluntary && { reason: 'voluntary' as const }),
+      },
     };
   }
   const career = clone(input), totals = careerTotals(career);
@@ -709,11 +1216,11 @@ function validStats(value: unknown, role: unknown) {
   return true;
 }
 
-function validSeason(value: Record<string, unknown>, role: unknown, attrs: string[], competition: Omit<Competition, 'teamId' | 'level'>) {
+function validSeason(value: Record<string, unknown>, role: unknown, attrs: string[], competition: Omit<Competition, 'teamId' | 'level'>, taggedCompetitions = false) {
   const record = value.teamRecord;
   const gains = value.attributeGains;
   const stats = value.stats;
-  if (value.role !== role || !validStats(stats, role)
+  if ((!taggedCompetitions && value.competitions !== undefined) || value.role !== role || !validStats(stats, role)
     || !finite(value.overallBefore, 1, 100) || !finite(value.overallAfter, 1, 100)
     || !isObject(gains) || !attrs.every(key => finite(gains[key], -50, 50)) || !isObject(record)
     || !['wins', 'losses', 'draws'].every(key => finite(record[key], 0, 200, true))
@@ -727,6 +1234,7 @@ function validSeason(value: Record<string, unknown>, role: unknown, attrs: strin
   const results = { W: 0, L: 0, D: 0 };
   for (const game of value.games) {
     if (!isObject(game) || !text(game.id, 1, 100) || !text(game.date, 1, 20) || !text(game.headline, 0, 500)
+      || (!taggedCompetitions && game.competitionId !== undefined)
       || !finite(game.number, 1, 200, true) || typeof game.opponentId !== 'string' || !competition.opponentIds.includes(game.opponentId)
       || typeof game.home !== 'boolean' || !finite(game.scoreFor, 0, 150, true) || !finite(game.scoreAgainst, 0, 150, true)
       || !validStats(game.stats, role)) return false;
@@ -737,6 +1245,132 @@ function validSeason(value: Record<string, unknown>, role: unknown, attrs: strin
   }
   return STAT_KEYS.every(key => aggregate[key] === (stats as Stats)[key])
     && results.W === record.wins && results.L === record.losses && results.D === record.draws;
+}
+
+function validCompetitionResult(result: Record<string, unknown>, expected: AmateurCompetitionResult) {
+  const { stats, teamRecord, outcome } = result;
+  return isObject(teamRecord) && isObject(outcome) && isObject(stats)
+    && STAT_KEYS.every(key => expected.stats[key] === stats[key])
+    && Object.entries(expected.teamRecord).every(([key, count]) => count === teamRecord[key])
+    && expected.outcome.kind === outcome.kind
+    && (expected.outcome.kind !== 'ranked' || expected.outcome.rank === outcome.rank)
+    && (expected.outcome.kind !== 'eliminated' || expected.outcome.round === outcome.round);
+}
+
+function validKoreanHighSchoolSeason(value: Record<string, unknown>, role: unknown, attrs: string[], school: Competition) {
+  if (!Array.isArray(value.games) || !Array.isArray(value.competitions) || value.competitions.length !== KOREAN_HIGH_SCHOOL_COMPETITIONS.length
+    || value.games.length > WEEKEND_GAMES * 2 + KNOCKOUT_ROUND_COUNT * 5
+    || !validSeason(value, role, attrs, { ...school, games: value.games.length }, true)
+    || !finite(value.injuredGames, 0, value.games.length - 1, true)
+    || !finite((value.teamRecord as SeasonResult['teamRecord']).rank, 1, WEEKEND_OPPONENTS + 1, true)) return false;
+
+  const year = Number(value.year);
+  const calendar = new Map<AmateurCompetitionId, number[]>(KOREAN_HIGH_SCHOOL_COMPETITIONS.map(definition => [definition.id, koreanCompetitionDates(definition, year)]));
+  const games = new Map<AmateurCompetitionId, GameSummary[]>();
+  let previousDate = 0;
+  for (const [index, game] of (value.games as GameSummary[]).entries()) {
+    if (!game.competitionId || !calendar.has(game.competitionId) || game.number !== index + 1 || game.id !== `${year}-${game.number}`) return false;
+    const group = games.get(game.competitionId) ?? [];
+    const fixtureDate = calendar.get(game.competitionId)![group.length];
+    if (fixtureDate === undefined || fixtureDate < previousDate) return false;
+    if (game.date !== gameDateLabel(fixtureDate)) return false;
+    group.push(game);
+    games.set(game.competitionId, group);
+    previousDate = fixtureDate;
+  }
+
+  let firstRank = 0, secondRank = 0, emartWins = 0;
+  let champion = false;
+  for (const [index, definition] of KOREAN_HIGH_SCHOOL_COMPETITIONS.entries()) {
+    const { id, format } = definition;
+    const result = value.competitions[index];
+    if (!isObject(result) || result.id !== id || !isObject(result.teamRecord)) return false;
+    const played = games.get(id) ?? [];
+    const record = result.teamRecord;
+    if (format === 'league') {
+      if (played.length !== WEEKEND_GAMES || !finite(record.rank, 1, WEEKEND_OPPONENTS + 1, true)) return false;
+      if (id === 'weekend-first') firstRank = Number(record.rank);
+      if (id === 'weekend-second') secondRank = Number(record.rank);
+    } else {
+      const eligible = canPlayKoreanCup(id, firstRank, secondRank, emartWins);
+      if (eligible !== (played.length > 0) || played.some((game, round) => game.result === 'D' || (round < played.length - 1 && game.result !== 'W'))
+        || (played.length > 0 && played.length < KNOCKOUT_ROUND_COUNT && played.at(-1)?.result !== 'L')) return false;
+    }
+
+    const expected = koreanCompetitionResult(definition, played, format === 'league' ? Number(record.rank) : 0);
+    if (id === 'emart') emartWins = expected.teamRecord.wins;
+    if (expected.outcome.kind === 'champion') champion = true;
+    if (!validCompetitionResult(result, expected)) return false;
+  }
+  return value.championship === champion;
+}
+
+function validScheduledKnockout(event: ScheduledKnockout, games: GameSummary[]) {
+  const rounds = knockoutSeries(games);
+  if (rounds.length > event.rounds || new Set(rounds.map(series => series[0].opponentId)).size !== rounds.length) return false;
+  return rounds.every((series, index) => {
+    if (series.some(game => game.result === 'D')) return false;
+    const round = index + 1;
+    const target = knockoutWinsRequired(event, round);
+    const wins = series.filter(game => game.result === 'W').length;
+    const losses = series.length - wins;
+    if (series.at(-1)?.result === 'L') return round === rounds.length && losses === target && wins < target;
+    return wins === target && losses < target && (round < rounds.length || round === event.rounds);
+  });
+}
+
+function validScheduledSeason(
+  value: Record<string, unknown>, role: unknown, attrs: string[], affiliation: ScheduledAffiliation,
+  schoolYear: number, previousSeason?: AmateurSeasonResult,
+) {
+  const calendar = scheduledCalendar(affiliation, schoolYear, Number(value.age));
+  const competition = scheduledSeasonCompetition(affiliation);
+  if (!Array.isArray(value.games) || !Array.isArray(value.competitions) || value.competitions.length !== calendar.length
+    || value.games.length > calendar.reduce((count, event) => count + scheduledFixtureCount(event), 0)
+    || !validSeason(value, role, attrs, { ...competition, games: value.games.length }, true)
+    || !finite(value.injuredGames, 0, value.games.length - 1, true)) return false;
+
+  const games = value.games as GameSummary[];
+  const year = Number(value.year);
+  const stages = new Map<string, ScheduledStage>();
+  let cursor = 0;
+  for (const [index, event] of calendar.entries()) {
+    const saved = value.competitions[index];
+    if (!isObject(saved) || saved.id !== event.id || !isObject(saved.teamRecord)) return false;
+    const start = cursor;
+    while (games[cursor]?.competitionId === event.id) {
+      const game = games[cursor];
+      if (game.number !== cursor + 1 || game.id !== `${year}-${game.number}`
+        || game.date !== gameDateLabel(scheduledFixtureDate(event, year, cursor - start))) return false;
+      cursor++;
+    }
+    const played = games.slice(start, cursor);
+    const eligible = qualifiedForScheduledStage(event, stages, affiliation.id, previousSeason);
+    if (eligible !== (played.length > 0) || played.length > scheduledFixtureCount(event)) return false;
+
+    let rank = 0;
+    if (eligible) {
+      const seed = `${affiliation.id}:${year}:${event.id}`;
+      const allowed = scheduledStageOpponents(event, affiliation, competition.opponentIds, calendar, stages, seed);
+      if (played.some(game => !allowed.includes(game.opponentId))) return false;
+      if (event.format === 'league') {
+        if (played.length !== scheduledFixtureCount(event) || !finite(saved.teamRecord.rank, 1, event.opponents + 1, true)
+          || (event.noDraws && played.some(game => game.result === 'D'))) return false;
+        const field = played.filter((_, i) => i % event.meetings === 0).map(game => game.opponentId);
+        if (new Set(field).size !== event.opponents
+          || played.some((game, i) => game.opponentId !== field[Math.floor(i / event.meetings)])) return false;
+        rank = Number(saved.teamRecord.rank);
+      } else if (!validScheduledKnockout(event, played)) return false;
+    }
+
+    const result = scheduledStageResult(event, played, rank);
+    if (!validCompetitionResult(saved, result)) return false;
+    stages.set(event.id, { games: played, result });
+  }
+
+  const results = [...stages.values()].map(stage => stage.result);
+  return cursor === games.length && (value.teamRecord as SeasonResult['teamRecord']).rank === scheduledSeasonRank(calendar, stages)
+    && value.championship === results.some(result => result.outcome.kind === 'champion');
 }
 
 function validDraft(value: unknown, leagueId: LeagueId): value is DraftResult {
@@ -764,7 +1398,7 @@ function validAmateurPath(input: Record<string, unknown>, role: unknown, attrs: 
 
   const college = amateur.college;
   if (college !== undefined && (!isObject(college) || typeof college.affiliationId !== 'string' || !finite(college.year, 1, COLLEGE_SEASONS, true))) return false;
-  const collegeAffiliation = college && getCollegeAffiliation(String(college.affiliationId));
+  const collegeAffiliation = college && getCollegeAffiliations(affiliation.country).find(team => team.id === college.affiliationId);
   if (college && collegeAffiliation?.country !== affiliation.country) return false;
 
   const config = AMATEUR_COUNTRIES[affiliation.country];
@@ -788,10 +1422,18 @@ function validAmateurPath(input: Record<string, unknown>, role: unknown, attrs: 
   const collegeCompetition = collegeAffiliation && amateurCompetition(collegeAffiliation);
   let lastDraft: DraftResult | undefined;
   let admissions: CollegeAdmission[] | undefined;
+  let previousSeason: AmateurSeasonResult | undefined;
   for (const [index, season] of amateur.history.entries()) {
     const competition = index < schoolSeasons ? schoolCompetition : collegeCompetition;
     if (!competition || !isObject(season) || season.affiliationId !== competition.teamId || season.year !== FIRST_YEAR + index
-      || season.age !== startAge + index || !validSeason(season, role, attrs, competition)) return false;
+      || season.age !== startAge + index) return false;
+    if (season.competitions !== undefined) {
+      const seasonAffiliation = index < schoolSeasons ? affiliation : collegeAffiliation;
+      if (!seasonAffiliation) return false;
+      if (seasonAffiliation.kind === 'school' && seasonAffiliation.country === 'KR') {
+        if (!validKoreanHighSchoolSeason(season, role, attrs, competition)) return false;
+      } else if (!validScheduledSeason(season, role, attrs, seasonAffiliation, index + 1, previousSeason)) return false;
+    } else if (!validSeason(season, role, attrs, competition)) return false;
     if (index < schoolSeasons - 1 || legacy) {
       if (season.draft !== undefined) return false;
     } else {
@@ -802,6 +1444,7 @@ function validAmateurPath(input: Record<string, unknown>, role: unknown, attrs: 
       if (index !== schoolSeasons - 1 || lastDraft?.status !== 'undrafted' || !validCollegeAdmissions(season.admissions, affiliation.country)) return false;
       admissions = season.admissions;
     }
+    previousSeason = season as unknown as AmateurSeasonResult;
   }
   if (collegeAffiliation && admissions && !admissions.some(admission => admission.status === 'accepted' && admission.affiliationId === collegeAffiliation.id)) return false;
 
@@ -818,13 +1461,16 @@ function validAmateurPath(input: Record<string, unknown>, role: unknown, attrs: 
   if (input.leagueId !== null || (!legacy && offers.length)
     || input.salary !== 0 || input.contractYears !== 0 || input.hallScore !== 0
     || proHistory.length || (input.awards as unknown[]).length) return false;
-  const index = played - (input.phase === 'ready' ? 0 : 1);
+  const retiredBeforeSeason = input.phase === 'retired' && isObject(input.retirement) && input.retirement.reason === 'voluntary';
+  const index = played - (input.phase === 'ready' || retiredBeforeSeason ? 0 : 1);
   if (index < 0 || input.season !== index + 1
     || input.year !== FIRST_YEAR + index || age !== startAge + index) return false;
   if (college ? college.year !== index - schoolSeasons + 1 : index >= schoolSeasons) return false;
   if (input.phase === 'retired') {
+    if (amateur.status !== 'retired') return false;
+    if (retiredBeforeSeason) return lastDraft?.status !== 'drafted';
     const noAdmission = !college && admissions?.every(admission => admission.status === 'rejected');
-    return amateur.status === 'retired' && lastDraft?.status === 'undrafted' && (noAdmission || college?.year === COLLEGE_SEASONS);
+    return lastDraft?.status === 'undrafted' && (noAdmission || college?.year === COLLEGE_SEASONS);
   }
   return amateur.status === 'active' && input.retirement === undefined
     && (input.phase !== 'ready' || lastDraft?.status !== 'drafted');
@@ -860,7 +1506,8 @@ export function validateCareer(input: unknown): Career | null {
     if (input.awards.some(item => !isObject(item) || !finite(item.year, 2026, 2075, true) || !LEAGUE_IDS.includes(item.leagueId as LeagueId) || !text(item.name, 1, 60))) return null;
     if (input.offers.some(item => !isObject(item) || !text(item.id, 1, 100) || !validTeam(item.teamId, item.leagueId) || !finite(item.salary, 0, 10000000) || !finite(item.years, 1, 10, true) || !text(item.role, 1, 60) || !text(item.description, 1, 500) || typeof item.isCurrent !== 'boolean')) return null;
     if (input.phase === 'retired' && (!isObject(input.retirement) || typeof input.retirement.hallOfFame !== 'boolean' || !text(input.retirement.title, 1, 100)
-      || !text(input.retirement.summary, 1, 1000) || !finite(input.retirement.score, 0, 10000) || !['legend', 'star', 'veteran', 'journey'].includes(String(input.retirement.tier)))) return null;
+      || !text(input.retirement.summary, 1, 1000) || !finite(input.retirement.score, 0, 10000) || !['legend', 'star', 'veteran', 'journey'].includes(String(input.retirement.tier))
+      || (input.retirement.reason !== undefined && input.retirement.reason !== 'voluntary'))) return null;
     if (input.amateur !== undefined && !validAmateurPath(input, p.role, attrs, p.age, input.offers as Offer[], input.history as SeasonResult[])) return null;
     if (input.teamId === null) {
       if (input.amateur === undefined) return null;
@@ -869,6 +1516,8 @@ export function validateCareer(input: unknown): Career | null {
     if (career.teamId === null && career.phase === 'offseason') {
       migrateLegacyEntryOffers(career);
       recordCollegeAdmissions(career);
+    } else if (career.teamId !== null && career.phase === 'offseason') {
+      career.offers = getProfessionalOffseasonOffers(career);
     }
     return career;
   } catch { return null; }

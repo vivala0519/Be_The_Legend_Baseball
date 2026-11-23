@@ -4,6 +4,7 @@ import { KOREAN_SCHOOL_SOURCE, KOREAN_SCHOOLS } from "./amateur-korea";
 import { TAIWAN_SCHOOL_SOURCE, TAIWAN_SCHOOLS } from "./amateur-taiwan";
 import { TEXAS_BASEBALL_SOURCE, TEXAS_BASEBALL_SCHOOLS } from "./amateur-us-texas";
 import { getWesternKoreanAliases, getWesternKoreanName } from "./amateur-western-names";
+import { CALIFORNIA_SCHOOL_OPPONENTS, CALIFORNIA_STATE_FINAL_OPPONENTS } from "./youth-competitions-us";
 
 export const AMATEUR_COUNTRY_CODES = ["KR", "JP", "US", "TW", "DO", "VE"] as const;
 export type AmateurCountry = (typeof AMATEUR_COUNTRY_CODES)[number];
@@ -194,6 +195,11 @@ const catalog: Record<AmateurCountry, readonly AmateurAffiliation[]> = {
 };
 
 const byId = new Map(Object.values(catalog).flat().map(affiliation => [affiliation.id, affiliation]));
+const californiaOpponents = [...CALIFORNIA_SCHOOL_OPPONENTS, ...CALIFORNIA_STATE_FINAL_OPPONENTS];
+const schoolOpponentsById = new Map(californiaOpponents.map(affiliation => [affiliation.id, affiliation]));
+const usSchoolsByState = new Map(['텍사스', '캘리포니아', '조지아'].map(state =>
+  [state, [...UNITED_STATES, ...californiaOpponents].filter(school => school.region === state)],
+));
 
 export function getAmateurAffiliations(country: AmateurCountry): readonly AmateurAffiliation[] {
   return catalog[country];
@@ -201,4 +207,12 @@ export function getAmateurAffiliations(country: AmateurCountry): readonly Amateu
 
 export function getAmateurAffiliation(id: string): AmateurAffiliation | undefined {
   return byId.get(id);
+}
+
+export function getSchoolOpponent(id: string): AmateurAffiliation | undefined {
+  return byId.get(id) ?? schoolOpponentsById.get(id);
+}
+
+export function getSchoolScheduleOpponents(affiliation: AmateurAffiliation): readonly AmateurAffiliation[] {
+  return affiliation.country === 'US' ? usSchoolsByState.get(affiliation.region) ?? [] : getAmateurAffiliations(affiliation.country);
 }

@@ -1,4 +1,4 @@
-import { getAmateurAffiliation, type AmateurCountry } from './amateur';
+import { getSchoolOpponent, type AmateurCountry } from './amateur';
 
 export type CollegeBaseballTier = 'standard' | 'competitive' | 'leading';
 
@@ -121,10 +121,50 @@ const byCountry: Record<AmateurCountry, readonly CollegeAffiliation[]> = {
   ]),
 };
 
-const byId = new Map(Object.values(byCountry).flat().map(affiliation => [affiliation.id, affiliation]));
+const additionalScheduleOpponents: Partial<Record<AmateurCountry, readonly CollegeAffiliation[]>> = {
+  // Japan University Baseball Federation's 2026 national tournament fields.
+  // https://www.jubf.net/system/prog/teams.php?k=all&m=pc&s=2026
+  // https://www.jubf.net/system/prog/teams.php?e=jingu&k=all&m=pc&s=2026
+  JP: colleges('JP', [
+    ['tokyo-nodai-okhotsk', '도쿄농업대학교 홋카이도 오호츠크', '홋카이도', 'competitive'],
+    ['sendai', '센다이대학교', '미야기', 'competitive'],
+    ['tohoku-fukushi', '도호쿠복지대학교', '미야기', 'leading'],
+    ['fuji', '후지대학교', '이와테', 'competitive'],
+    ['jobu', '조부대학교', '군마', 'competitive'],
+    ['tsukuba', '쓰쿠바대학교', '이바라키', 'competitive'],
+    ['asia', '아시아대학교', '도쿄', 'competitive'],
+    ['nssu', '일본체육대학교', '가나가와', 'leading'],
+    ['chukyo', '주쿄대학교', '아이치', 'leading'],
+    ['kansai', '간사이대학교', '오사카', 'leading'],
+    ['osaka-commerce', '오사카상업대학교', '오사카', 'leading'],
+    ['kyushu-kyoritsu', '규슈교리쓰대학교', '후쿠오카', 'competitive'],
+  ]),
+  // NCAA Division I teams seeded for the 2026 national tournament.
+  // https://www.ncaa.com/news/baseball/article/2026-05-25/2026-ncaa-division-i-baseball-championship-bracket-announced
+  US: colleges('US', [
+    ['ucla', '캘리포니아대학교 로스앤젤레스', '캘리포니아', 'leading'],
+    ['georgia-tech', '조지아공과대학교', '조지아', 'leading'],
+    ['georgia', '조지아대학교', '조지아', 'leading'],
+    ['auburn', '오번대학교', '앨라배마', 'leading'],
+    ['north-carolina', '노스캐롤라이나대학교 채플힐', '노스캐롤라이나', 'leading'],
+    ['alabama', '앨라배마대학교', '앨라배마', 'competitive'],
+    ['southern-miss', '서던미시시피대학교', '미시시피', 'competitive'],
+    ['florida-state', '플로리다주립대학교', '플로리다', 'competitive'],
+    ['oregon', '오리건대학교', '오리건', 'competitive'],
+    ['texas-am', '텍사스 A&M 대학교', '텍사스', 'competitive'],
+  ]),
+};
+
+const allColleges = [...Object.values(byCountry).flat(), ...Object.values(additionalScheduleOpponents).flat()];
+const byId = new Map(allColleges.map(affiliation => [affiliation.id, affiliation]));
 
 export function getCollegeAffiliations(country: AmateurCountry): readonly CollegeAffiliation[] {
   return byCountry[country];
+}
+
+export function getCollegeScheduleOpponents(country: AmateurCountry): readonly CollegeAffiliation[] {
+  const opponents = additionalScheduleOpponents[country];
+  return opponents ? [...byCountry[country], ...opponents] : byCountry[country];
 }
 
 export function getCollegeAffiliation(id: string): CollegeAffiliation | undefined {
@@ -132,5 +172,5 @@ export function getCollegeAffiliation(id: string): CollegeAffiliation | undefine
 }
 
 export function getCareerAffiliation(id: string) {
-  return getCollegeAffiliation(id) ?? getAmateurAffiliation(id);
+  return getCollegeAffiliation(id) ?? getSchoolOpponent(id);
 }

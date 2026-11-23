@@ -2,7 +2,7 @@
 import {useEffect,useRef,useState,type ReactNode,type CSSProperties} from "react";
 import Image from "next/image";
 import {X,ArrowRight,GraduationCap} from "lucide-react";
-import {getAmateurAffiliation} from "@/lib/amateur";
+import {getSchoolOpponent} from "@/lib/amateur";
 import {getCollegeAffiliation} from "@/lib/amateur-college";
 import {getAmateurMark} from "@/lib/amateur-marks";
 import {AVATAR_OPTIONS,DEFAULT_AVATAR_ID} from "@/lib/avatars";
@@ -12,7 +12,7 @@ export function BrandBall({size=27}:{size?:number}){return <svg width={size} hei
 export function TeamMark({id,large=false}:{id:string;large?:boolean}){const t=getTeam(id);return <span className={`team-mark ${large?"large":""}`} style={{"--team":t.color} as CSSProperties}>{t.shortName.slice(0,2)}</span>}
 export function AmateurMark({id,large=false}:{id:string;large?:boolean}) {
   const [failedSrc, setFailedSrc] = useState<string>();
-  const affiliation = getAmateurAffiliation(id);
+  const affiliation = getSchoolOpponent(id);
   const college = getCollegeAffiliation(id);
   const mark = college ? getCollegeMark(id) : affiliation ? getAmateurMark(affiliation) : undefined;
   const showMark = mark && failedSrc !== mark.src;

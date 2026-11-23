@@ -1,14 +1,91 @@
 "use client";
 
-import { ChevronRight } from "lucide-react";
+import { useState } from "react";
+import { CalendarDays, ChevronRight, Trophy } from "lucide-react";
 import { AMATEUR_COUNTRIES } from "@/lib/amateur";
 import { COLLEGE_COMPETITIONS, getCareerAffiliation } from "@/lib/amateur-college";
+import { getAmateurCompetition } from "@/lib/amateur-competitions";
 import { ATTRIBUTE_LABELS, statsRates } from "@/lib/game";
 import { getLeague, getTeam } from "@/lib/leagues";
-import type { AmateurSeasonResult, SeasonResult } from "@/lib/game-types";
+import type { AmateurSeasonResult, GameSummary, SeasonResult } from "@/lib/game-types";
 import { AmateurMark, decimal, TeamMark } from "@/components/game-ui";
 
 type PlayedSeason = SeasonResult | AmateurSeasonResult;
+type CompetitionResult = NonNullable<AmateurSeasonResult["competitions"]>[number];
+
+const ELIMINATION_LABELS = {
+  roundOf64: "64강", roundOf32: "32강", roundOf16: "16강", quarterfinal: "8강", semifinal: "4강", final: "준우승",
+};
+
+function competitionFinish({ outcome }: CompetitionResult, competition: ReturnType<typeof getAmateurCompetition>) {
+  switch (outcome.kind) {
+    case "champion": return "우승";
+    case "advanced": return "다음 라운드 진출";
+    case "ranked": return `${outcome.rank}위`;
+    case "eliminated": return outcome.round === "final" && competition?.advanceOnWin ? "탈락" : ELIMINATION_LABELS[outcome.round];
+    case "notQualified": return competition?.notQualifiedLabel ?? "출전권 미획득";
+  }
+}
+
+function competitionResultsOf(season: PlayedSeason) {
+  return "affiliationId" in season ? season.competitions : undefined;
+}
+
+function CompetitionResults({ results, batter }: { results: CompetitionResult[]; batter: boolean }) {
+  return <ul className="season-competition-results">
+    {results.map(result => {
+      const competition = getAmateurCompetition(result.id);
+      const Icon = competition?.format === "league" ? CalendarDays : Trophy;
+      const { stats, teamRecord, outcome } = result;
+      const qualified = outcome.kind !== "notQualified";
+      const personal = batter ? `${stats.h}안타 · ${stats.hr}홈런`
+        : `${statsRates(stats).innings}이닝 · ${stats.so}탈삼진`;
+      return <li className="season-competition-result" key={result.id}>
+        <span className="season-competition-icon" aria-hidden="true"><Icon size={19} /></span>
+        <div className="season-competition-main">
+          <strong>{competition?.name}</strong>
+          {qualified && <span>{stats.g}경기 출전 · {personal}</span>}
+        </div>
+        <div className="season-competition-record">
+          <b className={outcome.kind === "champion" ? "is-champion" : undefined}>{competitionFinish(result, competition)}</b>
+          {qualified && <small>{teamRecord.wins}승 {teamRecord.losses}패{teamRecord.draws ? ` ${teamRecord.draws}무` : ""}</small>}
+        </div>
+      </li>;
+    })}
+  </ul>;
+}
+
+function SeasonMoments({ season, competitions }: { season: PlayedSeason; competitions: CompetitionResult[] }) {
+  const batter = season.role === "batter";
+  const gameScore = ({ stats }: GameSummary) => batter ? stats.hr * 5 + stats.h + stats.rbi
+    : stats.so + (stats.w + stats.sv) * 3 + stats.outs / 3 - stats.er * 2;
+  const standout = season.games.reduce<GameSummary | undefined>((best, game) => (
+    game.stats.g > 0 && (!best || gameScore(game) > gameScore(best)) ? game : best
+  ), undefined);
+  const featured = standout ?? season.games.at(-1);
+  const championships = competitions.filter(({ outcome }) => outcome.kind === "champion")
+    .map(({ id }) => getAmateurCompetition(id)?.name);
+  const featuredCompetition = featured?.competitionId && getAmateurCompetition(featured.competitionId);
+
+  return <section className="t-flow-section" aria-label="시즌의 순간">
+    <h3>시즌의 순간</h3>
+    <div className="season-moments">
+      {championships.length > 0 && <article>
+        <strong>팀과 함께한 우승</strong>
+        <p>{championships.join(" · ")}에서 팀과 함께 우승했어요.</p>
+      </article>}
+      {featured && <article>
+        <strong>{standout ? featured.headline : "시즌 마지막 경기"}</strong>
+        <p>{featuredCompetition && `${featuredCompetition.name} · `}{getCareerAffiliation(featured.opponentId)?.name ?? "상대 팀"}전</p>
+        <small>팀 스코어 {featured.scoreFor} : {featured.scoreAgainst}</small>
+      </article>}
+      {season.injuredGames > 0 && <article>
+        <strong>그라운드로 돌아오기까지</strong>
+        <p>부상으로 {season.injuredGames}경기를 쉬며 몸을 회복했어요.</p>
+      </article>}
+    </div>
+  </section>;
+}
 
 function seasonTeam(season: PlayedSeason) {
   if ("affiliationId" in season) {
@@ -38,13 +115,14 @@ export function SeasonResultView({ result: s, onDetail }: { result: PlayedSeason
     .slice(0, batter ? 2 : 1);
   const team = seasonTeam(s);
   const amateur = "affiliationId" in s;
+  const competitions = competitionResultsOf(s);
   const firstNews = s.news[0];
   const fanNews = s.news.slice(1);
   const toneLabel = { positive: "기대", neutral: "이야기", negative: "아쉬움" };
 
-  return <section className="season-result-root t-result" aria-live="polite">
+  return <section className={`season-result-root t-result${competitions ? " t-amateur-competition-result" : ""}`} aria-live="polite">
     <div className="t-flow-scroll">
-      <p className="t-label">{s.year} {amateur ? "아마추어 " : ""}시즌이 끝났어요</p>
+      <p className="t-label">{competitions ? `${s.year} · ${team.name} 시즌 결산` : `${s.year} ${amateur ? "아마추어 " : ""}시즌이 끝났어요`}</p>
       <h2>종합 능력치가<br /><span className="t-blue">{s.overallAfter}</span>이 됐어요</h2>
 
       <div className="t-kv t-kv-flow">
@@ -66,13 +144,15 @@ export function SeasonResultView({ result: s, onDetail }: { result: PlayedSeason
 
       <section className="t-flow-section" aria-label="대회 결과">
         <h3>대회 결과</h3>
-        <div className="t-li t-li-flat">
+        {competitions ? <CompetitionResults results={competitions} batter={batter} /> : <div className="t-li t-li-flat">
           <span className="t-av t-av-logo"><SeasonTeamMark season={s} /></span>
           <span className="t-li-main"><b>{team.competition}</b><span>{team.name} · {s.teamRecord.wins}승 {s.teamRecord.losses}패{ s.teamRecord.draws > 0 ? ` ${s.teamRecord.draws}무` : ""}</span></span>
           <span className="t-li-end"><b>{s.championship ? "우승" : `${s.teamRecord.rank}위`}</b></span>
-        </div>
+        </div>}
         {s.awards.length > 0 && <div className="t-result-awards" aria-label="시즌 수상">{s.awards.map((award, index) => <span key={`${award}-${index}`}>{award}</span>)}</div>}
       </section>
+
+      {competitions && <SeasonMoments season={s} competitions={competitions} />}
 
       {s.news.length > 0 && <section className="t-flow-section" aria-label="언론과 팬 반응">
         <h3>언론·팬 반응</h3>
@@ -100,7 +180,12 @@ export function SeasonDetail({ result: s, showDraft = true }: { result: PlayedSe
   const team = seasonTeam(s);
   const amateur = "affiliationId" in s;
   const draft = amateur && showDraft ? s.draft : undefined;
-  const recentGames = s.games.filter(game => game.stats.g > 0).slice(-15).reverse();
+  const competitions = competitionResultsOf(s);
+  const [selectedCompetition, setSelectedCompetition] = useState("");
+  const competitionGames = selectedCompetition
+    ? s.games.filter(game => game.competitionId === selectedCompetition)
+    : s.games.filter(game => game.stats.g > 0).slice(-15);
+  const recentGames = competitionGames.reverse();
   const cells: [string, string | number][] = batter
     ? [["경기", s.stats.g], ["타석", s.stats.pa], ["타수", s.stats.ab], ["안타", s.stats.h], ["2루타", s.stats.doubles], ["3루타", s.stats.triples], ["홈런", s.stats.hr], ["타점", s.stats.rbi], ["볼넷", s.stats.bb], ["삼진", s.stats.so], ["타율", decimal(rates.avg)], ["OPS", decimal(rates.ops)]]
     : [["경기", s.stats.g], ["이닝", rates.innings], ["승리", s.stats.w], ["패배", s.stats.l], ["세이브", s.stats.sv], ["자책점", s.stats.er], ["피안타", s.stats.ha], ["볼넷", s.stats.bba], ["탈삼진", s.stats.so], ["ERA", rates.era.toFixed(2)], ["WHIP", rates.whip.toFixed(2)], ["부상 결장", s.injuredGames]];
@@ -117,19 +202,26 @@ export function SeasonDetail({ result: s, showDraft = true }: { result: PlayedSe
       </div>
     </div>
     <div className="detail-stats">{cells.map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
-    <h3>경기별 기록 <small>최근 출전 15경기</small></h3>
+    <h3>경기별 기록 {!selectedCompetition && <small>최근 출전 15경기</small>}</h3>
+    {competitions && <label className="season-game-filter">
+      대회
+      <select value={selectedCompetition} onChange={event => setSelectedCompetition(event.target.value)}>
+        <option value="">전체 대회</option>
+        {competitions.map(({ id }) => <option key={id} value={id}>{getAmateurCompetition(id)?.name}</option>)}
+      </select>
+    </label>}
     {recentGames.length > 0 ? <div className="table-scroll"><table>
       <thead><tr><th>경기</th><th>상대</th><th>결과</th><th>스코어</th><th>나의 기록</th></tr></thead>
       <tbody>{recentGames.map(game => <tr key={game.id}>
-        <td>#{game.number}</td>
+        <td>#{game.number}{game.competitionId && <small className="season-game-competition">{getAmateurCompetition(game.competitionId)?.name}</small>}</td>
         <td><span className="table-team">{amateur
           ? <><AmateurMark id={game.opponentId} />{getCareerAffiliation(game.opponentId)?.name ?? "상대 팀"}</>
           : <><TeamMark id={game.opponentId} />{getTeam(game.opponentId).shortName}</>}</span></td>
         <td><span className={`game-result ${game.result}`}>{game.result}</span></td>
         <td>{game.scoreFor} : {game.scoreAgainst}</td>
-        <td>{batter ? `${game.stats.ab}타수 ${game.stats.h}안타${game.stats.hr ? ` ${game.stats.hr}홈런` : ""}` : `${statsRates(game.stats).innings}이닝 ${game.stats.er}자책 ${game.stats.so}삼진`}</td>
+        <td>{!game.stats.g ? "미출전" : batter ? `${game.stats.ab}타수 ${game.stats.h}안타${game.stats.hr ? ` ${game.stats.hr}홈런` : ""}` : `${statsRates(game.stats).innings}이닝 ${game.stats.er}자책 ${game.stats.so}삼진`}</td>
       </tr>)}</tbody>
-    </table></div> : <p className="muted">이번 시즌에는 출전한 경기 기록이 없어요.</p>}
+    </table></div> : <p className="muted">{selectedCompetition ? "이번 시즌에 치른 대회 경기가 없어요." : "이번 시즌에는 출전한 경기 기록이 없어요."}</p>}
     {!batter && <p className="muted small">이닝의 소수점 뒤 숫자는 아웃 수예요. 5.2이닝은 5와 2/3이닝을 뜻합니다.</p>}
   </div>;
 }

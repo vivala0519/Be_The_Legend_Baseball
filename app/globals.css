@@ -534,6 +534,173 @@
   color: var(--t-g800);
 }
 
+.season-competition-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--t-g200);
+  border-radius: 16px;
+}
+
+.season-competition-result {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) fit-content(115px);
+  align-items: center;
+  gap: 10px;
+  min-height: 66px;
+  padding: 12px 14px;
+}
+
+.season-competition-result + .season-competition-result {
+  border-top: 1px solid var(--t-g100);
+}
+
+.season-competition-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 11px;
+  background: var(--t-blue-50);
+  color: var(--t-blue-press);
+}
+
+.season-competition-main,
+.season-competition-record {
+  display: grid;
+  gap: 4px;
+  line-height: 1.4;
+}
+
+.season-competition-main strong,
+.season-competition-record b {
+  font-size: 14px;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.season-competition-record {
+  color: var(--t-g800);
+  text-align: right;
+}
+
+.season-competition-main span,
+.season-competition-record small {
+  color: var(--t-g600);
+  font-size: 12px;
+}
+
+.season-competition-record .is-champion {
+  color: var(--t-blue-press);
+}
+
+.season-moments {
+  display: grid;
+  gap: 8px;
+}
+
+.season-moments article {
+  padding: 14px 16px;
+  border-left: 3px solid var(--t-blue);
+  border-radius: 0 14px 14px 0;
+  background: var(--t-blue-50);
+  word-break: keep-all;
+}
+
+.season-moments strong {
+  display: block;
+  font-size: 14px;
+}
+
+.season-moments p {
+  margin: 5px 0 0;
+  color: var(--t-g700);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.season-moments small {
+  display: block;
+  margin-top: 5px;
+  color: var(--t-blue-press);
+  font-size: 12px;
+}
+
+.t-amateur-competition-result .rx-press {
+  padding: 13px 15px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--t-g100);
+}
+
+.t-amateur-competition-result .rx-fans { gap: 0; }
+.t-amateur-competition-result .rx-fan { margin: 0; padding: 12px 0; }
+.t-amateur-competition-result .rx-fan + .rx-fan { border-top: 1px solid var(--t-g100); }
+
+.season-game-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  color: var(--t-g700);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.season-game-filter select {
+  min-height: 40px;
+  max-width: calc(100% - 40px);
+  padding: 8px 12px;
+  border: 1px solid var(--t-g200);
+  border-radius: 9px;
+  background: var(--t-g100);
+  color: var(--t-g900);
+  font: inherit;
+}
+
+.season-game-competition {
+  display: block;
+  max-width: 105px;
+  margin-top: 4px;
+  color: var(--t-g600);
+  font-size: 11px;
+  white-space: normal;
+  word-break: keep-all;
+}
+
+.transfer-eligibility {
+  margin: 0 0 16px;
+  padding: 6px 16px;
+  border-radius: 14px;
+  background: #f7f8fa;
+}
+
+.transfer-eligibility > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+  gap: 12px;
+  padding: 8px 0;
+  font-size: 13px;
+}
+
+.transfer-eligibility > div + div {
+  border-top: 1px solid var(--t-g200);
+}
+
+.transfer-eligibility dt {
+  color: var(--t-g600);
+}
+
+.transfer-eligibility dd {
+  margin: 0;
+  color: var(--t-g800);
+  font-weight: 600;
+  text-align: right;
+  word-break: keep-all;
+}
+
 @media (min-width: 700px) {
   .college-admission-options,
   .college-admission-details ul {

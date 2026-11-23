@@ -1,3 +1,6 @@
+import type { AmateurCompetitionId } from './amateur-competitions';
+import type { KoreanHighSchoolKnockoutRound } from './korean-high-school-competitions';
+
 export type LeagueId = 'KBO' | 'NPB' | 'MLB' | 'CPBL';
 export type PlayerRole = 'batter' | 'pitcher';
 export type GamePlan = 'balanced' | 'aggressive' | 'rest';
@@ -20,6 +23,7 @@ export interface GameSummary {
   id: string; number: number; date: string; opponentId: string; home: boolean;
   scoreFor: number; scoreAgainst: number; result: 'W' | 'L' | 'D';
   stats: Stats; headline: string;
+  competitionId?: AmateurCompetitionId;
 }
 
 export interface NewsItem { source: string; title: string; tone: 'positive' | 'neutral' | 'negative' }
@@ -40,10 +44,25 @@ export type CollegeAdmission =
   | { affiliationId: string; status: 'accepted' }
   | { affiliationId: string; status: 'rejected'; reason: 'position' | 'performance' };
 
+export type AmateurCompetitionOutcome =
+  | { kind: 'ranked'; rank: number }
+  | { kind: 'champion' }
+  | { kind: 'advanced' }
+  | { kind: 'eliminated'; round: KoreanHighSchoolKnockoutRound }
+  | { kind: 'notQualified' };
+
+export interface AmateurCompetitionResult {
+  id: AmateurCompetitionId;
+  stats: Stats;
+  teamRecord: SeasonResult['teamRecord'];
+  outcome: AmateurCompetitionOutcome;
+}
+
 export type AmateurSeasonResult = Omit<SeasonResult, 'leagueId' | 'teamId' | 'salary'> & {
   affiliationId: string;
   draft?: DraftResult;
   admissions?: CollegeAdmission[];
+  competitions?: AmateurCompetitionResult[];
 };
 
 export interface AmateurCareer {
@@ -66,6 +85,7 @@ export interface Offer {
 export interface Retirement {
   hallOfFame: boolean; title: string; summary: string; score: number;
   tier: 'legend' | 'star' | 'veteran' | 'journey';
+  reason?: 'voluntary';
 }
 
 interface CareerState {
