@@ -32,7 +32,7 @@ const FIRST_YEAR = 2026;
 const FINAL_PRO_SEASON_AGE = 40;
 const LEGACY_AMATEUR_START_AGE = 16;
 const DRAFT_ROUNDS = 8;
-const DRAFT_CUTOFF = 56;
+const DRAFT_CUTOFF = 58;
 const COLLEGE_ADMISSION_CUTOFFS = {
   standard: [42, 47],
   competitive: [49, 56],
@@ -289,7 +289,8 @@ interface Competition {
   teamId: string;
   opponentIds: string[];
   games: number;
-  level: number;
+  rosterRating: number;
+  playingTimeBonus?: number;
   allowsDraws: boolean;
 }
 
@@ -322,10 +323,10 @@ function simulateGame(career: Career, competition: Competition, number: number, 
   const isCloser = /CP|마무리/i.test(career.player.position);
   const ovr = getOverall(career.player);
   const home = fixture?.home ?? Math.floor((number - 1) / 3) % 2 === 0;
-  const baseRating = 47 + competition.level * 23;
+  const baseRating = competition.rosterRating;
   const teamRating = baseRating + (hash(competition.teamId) % 17 - 8);
   const opponentRating = baseRating + (hash(opponentId) % 17 - 8);
-  const opportunity = clamp(.30 + (ovr - 45) * .018 + (career.season > 1 ? .04 : 0), .24, .97);
+  const opportunity = clamp(.30 + (ovr - 45) * .018 + (career.season > 1 ? .04 : 0) + (competition.playingTimeBonus ?? 0), .24, .97);
   const available = fixture?.trackPlayer !== false && number > injuredGames && career.health > 25;
   const playerBats = isBatter && available && random() < opportunity * (career.plan === 'rest' ? .86 : career.plan === 'aggressive' ? 1.08 : 1);
   const workloadPlan = career.plan === 'rest' ? .86 : career.plan === 'aggressive' ? 1.08 : 1;
@@ -693,7 +694,8 @@ function amateurCompetition(affiliation: AmateurAffiliation | CollegeAffiliation
     teamId: affiliation.id,
     opponentIds: field.filter(team => team.id !== affiliation.id).map(team => team.id),
     games: (college ? COLLEGE_COMPETITIONS : AMATEUR_COUNTRIES)[affiliation.country].games,
-    level: college ? .45 : .2,
+    rosterRating: college ? 49 : 41,
+    playingTimeBonus: college ? .08 : .12,
     allowsDraws: true,
   };
 }
@@ -1243,23 +1245,45 @@ function updateCondition(career: Career, stats: Stats, gameCount: number, injure
   career.morale = clamp(Math.round(75 + (winRate - .5) * 40 + awardCount * 4), 35, 100);
 }
 
-function runDraft(leagueId: LeagueId, season: AmateurSeasonResult, random: Random): DraftResult {
-  const rates = statsRates(season.stats);
+function runDraft(career: ActiveAmateurCareer, leagueId: LeagueId, season: AmateurSeasonResult, random: Random): DraftResult {
+  const college = !!career.amateur.college;
   const batter = season.role === 'batter';
-  const sample = batter ? season.stats.pa / 65 : season.stats.outs / 55;
-  const production = batter ? (rates.ops - .65) * 15 : (4.5 - rates.era) * 1.8;
-  const grade = season.overallAfter + clamp(production, -6, 6) * clamp(sample, 0, 1) + random() * 24 - 12;
-  if (grade < DRAFT_CUTOFF) return { status: 'undrafted', leagueId };
+  const position = getPositionCode(career.player.position);
+  const workload = batter ? season.stats.pa : season.stats.outs;
+  const minimumWorkload = batter ? 24 : position === 'CP' ? 9 : position === 'RP' ? 12 : 30;
+  const fullSample = batter ? 75 : position === 'CP' ? 18 : position === 'RP' ? 30 : 60;
+  const scoutVariation = random() * 10 - 5;
+  const undrafted: DraftResult = { status: 'undrafted', leagueId };
+  if (workload < minimumWorkload) return undrafted;
+
+  const stageStats = emptyStats();
+  for (const result of career.amateur.history) {
+    if (result.affiliationId === season.affiliationId) addStats(stageStats, result.stats);
+  }
+  // Scouts emphasize the latest season and use the player's record at the same level for context.
+  const recent = statsRates(season.stats);
+  const stage = statsRates(stageStats);
+  const ops = recent.ops * .65 + stage.ops * .35;
+  const era = recent.era * .65 + stage.era * .35;
+  const whip = recent.whip * .65 + stage.whip * .35;
+  if (batter ? recent.ops < .65 || ops < (college ? .72 : .74) : recent.era > 6.5 || era > 5.5 || whip > 1.75) return undrafted;
+
+  const production = batter ? (ops - (college ? .80 : .82)) * 30
+    : ((college ? 3.5 : 2.8) - era) * 2.7 + ((college ? 1.30 : 1.15) - whip) * 5;
+  const confidence = clamp(workload / fullSample, .5, 1);
+  const cutoff = DRAFT_CUTOFF + (college ? 2 : 0);
+  const grade = season.overallAfter + clamp(production, -12, 12) * confidence - (1 - confidence) * 4 + scoutVariation;
+  if (grade < cutoff) return undrafted;
 
   // Use the same game-specific round structure in each league. One team picks per round slot.
-  const round = clamp(DRAFT_ROUNDS - Math.floor((grade - DRAFT_CUTOFF) / 3), 1, DRAFT_ROUNDS);
+  const round = clamp(DRAFT_ROUNDS - Math.floor((grade - cutoff) / 3), 1, DRAFT_ROUNDS);
   const teams = teamsForLeague(leagueId).sort((a, b) => hash(`${season.year}:${a.id}`) - hash(`${season.year}:${b.id}`));
   const pick = Math.floor(random() * teams.length) + 1;
   return { status: 'drafted', leagueId, teamId: teams[pick - 1].id, round, pick, overallPick: (round - 1) * teams.length + pick };
 }
 
 function recordDraft(career: ActiveAmateurCareer, season: AmateurSeasonResult, leagueId: LeagueId) {
-  const draft = runDraft(leagueId, season, randomGenerator(career));
+  const draft = runDraft(career, leagueId, season, randomGenerator(career));
   season.draft = draft;
   const summary = draft.status === 'drafted'
     ? `${getTeam(draft.teamId).name}에 ${draft.round}라운드 전체 ${draft.overallPick}순위로 지명됐어요.`
@@ -1294,7 +1318,7 @@ function recordCollegeAdmissions(career: ActiveAmateurCareer) {
   const position = getPositionCode(career.player.position);
   const reliever = position === 'RP' || position === 'CP';
   const sample = batter ? totals.pa / 250 : totals.outs / (reliever ? 75 : 180);
-  const production = batter ? (rates.ops - .65) * 25 : (4.5 - rates.era) * 3;
+  const production = batter ? (rates.ops - .73) * 25 : (3.8 - rates.era) * 3;
   const experience = clamp(sample, 0, 1);
   const grade = graduation.overallAfter + clamp(production, -12, 12) * experience + (experience - .5) * 10;
 
@@ -1384,7 +1408,7 @@ export function simulateSeason(input: Career): Career {
   const league = getLeague(career.leagueId);
   const competition: Competition = {
     teamId: career.teamId, opponentIds: teamsForLeague(league.id).filter(team => team.id !== career.teamId).map(team => team.id),
-    games: league.games, level: league.level, allowsDraws: league.id !== 'MLB',
+    games: league.games, rosterRating: 47 + league.level * 23, allowsDraws: league.id !== 'MLB',
   };
   const before = getOverall(career.player);
   const { stats, games, injuredGames, winRate, teamRecord, postseason } = playProfessionalSeason(career, competition, random);
@@ -1596,7 +1620,7 @@ function validStats(value: unknown, role: unknown) {
   return true;
 }
 
-function validSeason(value: Record<string, unknown>, role: unknown, attrs: string[], competition: Omit<Competition, 'teamId' | 'level'>, taggedCompetitions = false) {
+function validSeason(value: Record<string, unknown>, role: unknown, attrs: string[], competition: Pick<Competition, 'opponentIds' | 'games' | 'allowsDraws'>, taggedCompetitions = false) {
   const record = value.teamRecord;
   const gains = value.attributeGains;
   const stats = value.stats;
