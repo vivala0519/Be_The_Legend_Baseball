@@ -5,10 +5,13 @@ import { CalendarDays, ChevronRight, Trophy } from "lucide-react";
 import { AMATEUR_COUNTRIES } from "@/lib/amateur";
 import { COLLEGE_COMPETITIONS, getCareerAffiliation } from "@/lib/amateur-college";
 import { getAmateurCompetition } from "@/lib/amateur-competitions";
-import { ATTRIBUTE_LABELS, statsRates } from "@/lib/game";
+import { ATTRIBUTE_LABELS, statsRates, summarizeGames } from "@/lib/game";
 import { getLeague, getTeam } from "@/lib/leagues";
-import type { AmateurSeasonResult, GameSummary, SeasonResult } from "@/lib/game-types";
+import type { AmateurSeasonResult, GameSummary, PostseasonPlayerGame, ProPostseasonResult, SeasonResult, Stats } from "@/lib/game-types";
+import { getPostseasonGroup } from "@/lib/pro-postseason";
+import { getPostseasonProgress } from "@/lib/postseason-progress";
 import { AmateurMark, decimal, TeamMark } from "@/components/game-ui";
+import { PostseasonBracketView } from "@/components/postseason-bracket";
 
 type PlayedSeason = SeasonResult | AmateurSeasonResult;
 type CompetitionResult = NonNullable<AmateurSeasonResult["competitions"]>[number];
@@ -106,7 +109,21 @@ function SeasonTeamMark({ season, large }: { season: PlayedSeason; large?: boole
     : <TeamMark id={season.teamId} large={large} />;
 }
 
-export function SeasonResultView({ result: s, onDetail }: { result: PlayedSeason; onDetail: () => void }) {
+function postseasonFinish(postseason: ProPostseasonResult, teamId: string) {
+  if (postseason.championId === teamId) return "우승";
+  if (!postseason.qualified) return "미진출";
+  const lastSeries = postseason.series.findLast(series => series.teamAId === teamId || series.teamBId === teamId);
+  if (!lastSeries) return "진출";
+  if (lastSeries === postseason.series.at(-1)) return "준우승";
+  return `${lastSeries.name} 탈락`;
+}
+
+export function SeasonResultView({ result: s, onDetail, onPostseasonDetail, onAdvancePostseason }: {
+  result: PlayedSeason;
+  onDetail: () => void;
+  onPostseasonDetail: () => void;
+  onAdvancePostseason?: () => void;
+}) {
   const rates = statsRates(s.stats);
   const batter = s.role === "batter";
   const growth = s.overallAfter - s.overallBefore;
@@ -115,6 +132,11 @@ export function SeasonResultView({ result: s, onDetail }: { result: PlayedSeason
     .slice(0, batter ? 2 : 1);
   const team = seasonTeam(s);
   const amateur = "affiliationId" in s;
+  const postseason = amateur ? undefined : s.postseason;
+  const revealedSeriesCount = postseason?.revealedSeriesCount;
+  const stagedPostseason = !amateur && postseason && revealedSeriesCount !== undefined;
+  const regularGroup = !amateur && postseason ? getPostseasonGroup(s.leagueId, s.teamId) : undefined;
+  const displayedAwards = postseason ? s.awards.filter(award => award !== "리그 우승") : s.awards;
   const competitions = competitionResultsOf(s);
   const firstNews = s.news[0];
   const fanNews = s.news.slice(1);
@@ -122,7 +144,14 @@ export function SeasonResultView({ result: s, onDetail }: { result: PlayedSeason
 
   return <section className={`season-result-root t-result${competitions ? " t-amateur-competition-result" : ""}`} aria-live="polite">
     <div className="t-flow-scroll">
-      <p className="t-label">{competitions ? `${s.year} · ${team.name} 시즌 결산` : `${s.year} ${amateur ? "아마추어 " : ""}시즌이 끝났어요`}</p>
+      <p className="t-label">{competitions ? `${s.year} · ${team.name} 시즌 결산` : `${s.year} ${postseason ? "정규" : amateur ? "아마추어 " : ""}시즌이 끝났어요`}</p>
+      {stagedPostseason && <section className="t-flow-section">
+        <h3>포스트시즌 진출</h3>
+        <PostseasonBracketView bracket={postseason} playerTeamId={s.teamId} progress={{ revealedSeriesCount, onAdvance: onAdvancePostseason }} />
+        <div className="t-flow-details"><button type="button" className="t-result-detail-button" onClick={onPostseasonDetail}>
+          <span>포스트시즌 기록</span><ChevronRight size={18} />
+        </button></div>
+      </section>}
       <h2>종합 능력치가<br /><span className="t-blue">{s.overallAfter}</span>이 됐어요</h2>
 
       <div className="t-kv t-kv-flow">
@@ -131,7 +160,8 @@ export function SeasonResultView({ result: s, onDetail }: { result: PlayedSeason
           <div><span>안타 · 홈런</span><b>{s.stats.h}안타 {s.stats.hr}홈런</b></div>
           <div><span>타율 · OPS</span><b>{decimal(rates.avg)} · {decimal(rates.ops)}</b></div>
         </> : <>
-          <div><span>승 · 패 · 세이브</span><b>{s.stats.w}승 {s.stats.l}패 {s.stats.sv}세이브</b></div>
+          <div><span>승 · 패</span><b>{s.stats.w}승 {s.stats.l}패</b></div>
+          <div><span>세이브 · 홀드</span><b>{s.stats.sv}세이브 {s.stats.hld ?? 0}홀드</b></div>
           <div><span>평균자책점 · WHIP</span><b>{rates.era.toFixed(2)} · {rates.whip.toFixed(2)}</b></div>
           <div><span>탈삼진</span><b>{s.stats.so}</b></div>
         </>}
@@ -142,15 +172,30 @@ export function SeasonResultView({ result: s, onDetail }: { result: PlayedSeason
         </div>)}
       </div>
 
-      <section className="t-flow-section" aria-label="대회 결과">
-        <h3>대회 결과</h3>
+      <section className="t-flow-section">
+        <h3>{postseason ? "정규시즌" : "대회 결과"}</h3>
         {competitions ? <CompetitionResults results={competitions} batter={batter} /> : <div className="t-li t-li-flat">
           <span className="t-av t-av-logo"><SeasonTeamMark season={s} /></span>
           <span className="t-li-main"><b>{team.competition}</b><span>{team.name} · {s.teamRecord.wins}승 {s.teamRecord.losses}패{ s.teamRecord.draws > 0 ? ` ${s.teamRecord.draws}무` : ""}</span></span>
-          <span className="t-li-end"><b>{s.championship ? "우승" : `${s.teamRecord.rank}위`}</b></span>
+          <span className="t-li-end"><b>{s.championship && !postseason ? "우승" : `${regularGroup ? `${regularGroup} ` : ""}${s.teamRecord.rank}위`}</b></span>
         </div>}
-        {s.awards.length > 0 && <div className="t-result-awards" aria-label="시즌 수상">{s.awards.map((award, index) => <span key={`${award}-${index}`}>{award}</span>)}</div>}
+        {displayedAwards.length > 0 && <div className="t-result-awards" aria-label="시즌 수상">{displayedAwards.map((award, index) => <span key={`${award}-${index}`}>{award}</span>)}</div>}
       </section>
+
+      {!amateur && postseason && !stagedPostseason && <section className="t-flow-section">
+        <h3>포스트시즌</h3>
+        <div className="t-li t-li-flat postseason-result-summary">
+            <span className="t-av t-av-logo"><TeamMark id={postseason.qualified ? postseason.championId : s.teamId} /></span>
+            <span className="t-li-main">{postseason.qualified
+              ? <><b>우승팀 {getTeam(postseason.championId).name}</b><span>개인 출전 {postseason.stats.g}경기</span></>
+              : <b>{team.name}</b>}
+            </span>
+            <span className="t-li-end"><b>{postseasonFinish(postseason, s.teamId)}</b></span>
+        </div>
+        <div className="t-flow-details"><button type="button" className="t-result-detail-button" onClick={onPostseasonDetail}>
+          <span>포스트시즌 기록</span><ChevronRight size={18} />
+        </button></div>
+      </section>}
 
       {competitions && <SeasonMoments season={s} competitions={competitions} />}
 
@@ -169,26 +214,94 @@ export function SeasonResultView({ result: s, onDetail }: { result: PlayedSeason
         </div></div>
       </section>}
 
-      <div className="t-flow-details"><button type="button" className="t-result-detail-button" onClick={onDetail}><span>상세 기록</span><ChevronRight size={18} /></button></div>
+      <div className="t-flow-details"><button type="button" className="t-result-detail-button" onClick={onDetail}><span>{postseason ? "정규시즌 상세 기록" : "상세 기록"}</span><ChevronRight size={18} /></button></div>
     </div>
   </section>;
 }
 
-export function SeasonDetail({ result: s, showDraft = true }: { result: PlayedSeason; showDraft?: boolean }) {
-  const rates = statsRates(s.stats);
+function PlayerStats({ stats, batter, injuredGames }: { stats: Stats; batter: boolean; injuredGames?: number }) {
+  const rates = statsRates(stats);
+  const cells: [string, string | number][] = batter
+    ? [
+        ["경기", stats.g], ["타석", stats.pa], ["타수", stats.ab], ["안타", stats.h],
+        ["2루타", stats.doubles], ["3루타", stats.triples], ["홈런", stats.hr], ["타점", stats.rbi],
+        ["득점", stats.r], ["볼넷", stats.bb], ["삼진", stats.so], ["타율", decimal(rates.avg)],
+        ["출루율", decimal(rates.obp)], ["장타율", decimal(rates.slg)], ["OPS", decimal(rates.ops)],
+      ]
+    : [
+        ["경기", stats.g], ["이닝", rates.innings], ["승리", stats.w], ["패배", stats.l],
+        ["세이브", stats.sv], ["홀드", stats.hld ?? 0], ["승률", decimal(rates.winPct)],
+        ["자책점", stats.er], ["피안타", stats.ha], ["볼넷", stats.bba], ["탈삼진", stats.so],
+        ["ERA", rates.era.toFixed(2)], ["WHIP", rates.whip.toFixed(2)],
+      ];
+  if (!batter && injuredGames !== undefined) cells.push(["부상 결장", injuredGames]);
+  return <div className="detail-stats">{cells.map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>;
+}
+
+function PlayerGameTable({ games, batter, amateur = false, seriesNames }: {
+  games: (GameSummary | PostseasonPlayerGame)[];
+  batter: boolean;
+  amateur?: boolean;
+  seriesNames?: ReadonlyMap<string, string>;
+}) {
+  return <div className="table-scroll"><table>
+      <thead><tr><th>경기</th><th>상대</th><th>결과</th><th>스코어</th><th>나의 기록</th></tr></thead>
+      <tbody>{games.map(game => <tr key={game.id}>
+        <td>{"seriesId" in game ? <>{game.gameNumber}차전 <small className="season-game-competition">{seriesNames?.get(game.seriesId)}</small></>
+          : <>#{game.number}{game.competitionId && <small className="season-game-competition">{getAmateurCompetition(game.competitionId)?.name}</small>}</>}</td>
+        <td><span className="table-team">{amateur
+          ? <><AmateurMark id={game.opponentId} />{getCareerAffiliation(game.opponentId)?.name ?? "상대 팀"}</>
+          : <><TeamMark id={game.opponentId} />{getTeam(game.opponentId).shortName}</>}</span></td>
+        <td><span className={`game-result ${game.result}`}>{game.result}</span></td>
+        <td>{game.scoreFor} : {game.scoreAgainst}</td>
+        <td>{!game.stats.g ? "미출전" : batter
+          ? `${game.stats.ab}타수 ${game.stats.h}안타${game.stats.hr ? ` ${game.stats.hr}홈런` : ""}`
+          : `${statsRates(game.stats).innings}이닝 ${game.stats.er}자책 ${game.stats.so}삼진${game.stats.sv ? " · 세이브" : ""}${game.stats.hld ? " · 홀드" : ""}`}</td>
+      </tr>)}</tbody>
+  </table></div>;
+}
+
+function PostseasonDetail({ postseason, teamId, batter }: { postseason: ProPostseasonResult; teamId: string; batter: boolean }) {
+  const progress = getPostseasonProgress(postseason, postseason.revealedSeriesCount);
+  const seriesNames = new Map(progress.revealedSeries.map(series => [series.id, series.name]));
+  const qualificationSeries = new Set(progress.revealedSeries.filter(series => series.qualification).map(series => series.id));
+  const playoffGames = postseason.games.filter(game => seriesNames.has(game.seriesId) && !qualificationSeries.has(game.seriesId));
+  const qualificationGames = postseason.games.filter(game => qualificationSeries.has(game.seriesId));
+  return <>
+    <PostseasonBracketView bracket={postseason} playerTeamId={teamId} progress={postseason.revealedSeriesCount === undefined
+      ? undefined : { revealedSeriesCount: postseason.revealedSeriesCount }} />
+    <section className="postseason-section">
+      <h3>개인 포스트시즌 기록</h3>
+      {playoffGames.length > 0 ? <>
+        <PlayerStats stats={progress.complete ? postseason.stats : summarizeGames(playoffGames).stats} batter={batter} />
+        <h4>경기별 개인 기록</h4>
+        <PlayerGameTable games={playoffGames} batter={batter} seriesNames={seriesNames} />
+      </> : <p className="muted">{!progress.complete ? "공개된 소속 팀 경기가 아직 없어요." : postseason.qualified
+        ? "개인 포스트시즌 경기 기록이 없어요." : "소속 팀이 포스트시즌에 진출하지 못했어요."}</p>}
+    </section>
+    {qualificationGames.length > 0 && <section className="postseason-section">
+      <h3>순위 결정전 개인 기록</h3>
+      <PlayerGameTable games={qualificationGames} batter={batter} seriesNames={seriesNames} />
+    </section>}
+  </>;
+}
+
+export function SeasonDetail({ result: s, showDraft = true, initialView = "regular" }: {
+  result: PlayedSeason;
+  showDraft?: boolean;
+  initialView?: "regular" | "postseason";
+}) {
   const batter = s.role === "batter";
   const team = seasonTeam(s);
   const amateur = "affiliationId" in s;
   const draft = amateur && showDraft ? s.draft : undefined;
+  const postseason = amateur ? undefined : s.postseason;
   const competitions = competitionResultsOf(s);
+  const [view, setView] = useState(initialView);
   const [selectedCompetition, setSelectedCompetition] = useState("");
-  const competitionGames = selectedCompetition
+  const recentGames = (selectedCompetition
     ? s.games.filter(game => game.competitionId === selectedCompetition)
-    : s.games.filter(game => game.stats.g > 0).slice(-15);
-  const recentGames = competitionGames.reverse();
-  const cells: [string, string | number][] = batter
-    ? [["경기", s.stats.g], ["타석", s.stats.pa], ["타수", s.stats.ab], ["안타", s.stats.h], ["2루타", s.stats.doubles], ["3루타", s.stats.triples], ["홈런", s.stats.hr], ["타점", s.stats.rbi], ["볼넷", s.stats.bb], ["삼진", s.stats.so], ["타율", decimal(rates.avg)], ["OPS", decimal(rates.ops)]]
-    : [["경기", s.stats.g], ["이닝", rates.innings], ["승리", s.stats.w], ["패배", s.stats.l], ["세이브", s.stats.sv], ["자책점", s.stats.er], ["피안타", s.stats.ha], ["볼넷", s.stats.bba], ["탈삼진", s.stats.so], ["ERA", rates.era.toFixed(2)], ["WHIP", rates.whip.toFixed(2)], ["부상 결장", s.injuredGames]];
+    : s.games.filter(game => game.stats.g > 0).slice(-15)).reverse();
 
   return <div className="season-detail">
     <div className="detail-player">
@@ -201,27 +314,23 @@ export function SeasonDetail({ result: s, showDraft = true }: { result: PlayedSe
           : "미지명"}</p>}
       </div>
     </div>
-    <div className="detail-stats">{cells.map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
-    <h3>경기별 기록 {!selectedCompetition && <small>최근 출전 15경기</small>}</h3>
-    {competitions && <label className="season-game-filter">
-      대회
-      <select value={selectedCompetition} onChange={event => setSelectedCompetition(event.target.value)}>
-        <option value="">전체 대회</option>
-        {competitions.map(({ id }) => <option key={id} value={id}>{getAmateurCompetition(id)?.name}</option>)}
-      </select>
-    </label>}
-    {recentGames.length > 0 ? <div className="table-scroll"><table>
-      <thead><tr><th>경기</th><th>상대</th><th>결과</th><th>스코어</th><th>나의 기록</th></tr></thead>
-      <tbody>{recentGames.map(game => <tr key={game.id}>
-        <td>#{game.number}{game.competitionId && <small className="season-game-competition">{getAmateurCompetition(game.competitionId)?.name}</small>}</td>
-        <td><span className="table-team">{amateur
-          ? <><AmateurMark id={game.opponentId} />{getCareerAffiliation(game.opponentId)?.name ?? "상대 팀"}</>
-          : <><TeamMark id={game.opponentId} />{getTeam(game.opponentId).shortName}</>}</span></td>
-        <td><span className={`game-result ${game.result}`}>{game.result}</span></td>
-        <td>{game.scoreFor} : {game.scoreAgainst}</td>
-        <td>{!game.stats.g ? "미출전" : batter ? `${game.stats.ab}타수 ${game.stats.h}안타${game.stats.hr ? ` ${game.stats.hr}홈런` : ""}` : `${statsRates(game.stats).innings}이닝 ${game.stats.er}자책 ${game.stats.so}삼진`}</td>
-      </tr>)}</tbody>
-    </table></div> : <p className="muted">{selectedCompetition ? "이번 시즌에 치른 대회 경기가 없어요." : "이번 시즌에는 출전한 경기 기록이 없어요."}</p>}
+    {postseason && <div className="season-detail-switch" role="group" aria-label="시즌 기록 구분">
+      <button type="button" aria-pressed={view === "regular"} onClick={() => setView("regular")}>정규시즌</button>
+      <button type="button" aria-pressed={view === "postseason"} onClick={() => setView("postseason")}>포스트시즌</button>
+    </div>}
+    {!amateur && postseason && view === "postseason" ? <PostseasonDetail postseason={postseason} teamId={s.teamId} batter={batter} /> : <>
+      <PlayerStats stats={s.stats} batter={batter} injuredGames={s.injuredGames} />
+      <h3>경기별 기록 {!selectedCompetition && <small>최근 출전 15경기</small>}</h3>
+      {competitions && <label className="season-game-filter">
+        대회
+        <select value={selectedCompetition} onChange={event => setSelectedCompetition(event.target.value)}>
+          <option value="">전체 대회</option>
+          {competitions.map(({ id }) => <option key={id} value={id}>{getAmateurCompetition(id)?.name}</option>)}
+        </select>
+      </label>}
+      {recentGames.length > 0 ? <PlayerGameTable games={recentGames} batter={batter} amateur={amateur} />
+        : <p className="muted">{selectedCompetition ? "이번 시즌에 치른 대회 경기가 없어요." : "이번 시즌에는 출전한 경기 기록이 없어요."}</p>}
+    </>}
     {!batter && <p className="muted small">이닝의 소수점 뒤 숫자는 아웃 수예요. 5.2이닝은 5와 2/3이닝을 뜻합니다.</p>}
   </div>;
 }

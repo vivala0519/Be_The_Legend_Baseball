@@ -1,5 +1,6 @@
 import type { AmateurCompetitionId } from './amateur-competitions';
 import type { KoreanHighSchoolKnockoutRound } from './korean-high-school-competitions';
+import type { PostseasonBracket, PostseasonStanding } from './pro-postseason';
 
 export type LeagueId = 'KBO' | 'NPB' | 'MLB' | 'CPBL';
 export type PlayerRole = 'batter' | 'pitcher';
@@ -16,7 +17,7 @@ export interface Stats {
   g: number; pa: number; ab: number; h: number; doubles: number; triples: number;
   hr: number; r: number; rbi: number; bb: number; hbp: number; sf: number;
   sb: number; so: number; outs: number; er: number; ha: number; bba: number;
-  w: number; l: number; sv: number;
+  w: number; l: number; sv: number; hld?: number;
 }
 
 export interface GameSummary {
@@ -24,6 +25,22 @@ export interface GameSummary {
   scoreFor: number; scoreAgainst: number; result: 'W' | 'L' | 'D';
   stats: Stats; headline: string;
   competitionId?: AmateurCompetitionId;
+}
+
+export interface PostseasonPlayerGame extends GameSummary {
+  seriesId: string;
+  gameNumber: number;
+}
+
+export type RegularSeasonMatchup = [wins: number, losses: number, draws: number, runsFor: number, runsAgainst: number];
+
+export interface ProPostseasonResult extends PostseasonBracket {
+  standings: Omit<PostseasonStanding, 'headToHead'>[];
+  matchups: RegularSeasonMatchup[];
+  qualified: boolean;
+  stats: Stats;
+  games: PostseasonPlayerGame[];
+  revealedSeriesCount?: number;
 }
 
 export interface NewsItem { source: string; title: string; tone: 'positive' | 'neutral' | 'negative' }
@@ -34,6 +51,7 @@ export interface SeasonResult {
   teamRecord: { wins: number; losses: number; draws: number; rank: number };
   awards: string[]; highlights: string[]; news: NewsItem[]; games: GameSummary[];
   salary: number; injuredGames: number; championship: boolean;
+  postseason?: ProPostseasonResult;
 }
 
 export type DraftResult =
@@ -58,7 +76,7 @@ export interface AmateurCompetitionResult {
   outcome: AmateurCompetitionOutcome;
 }
 
-export type AmateurSeasonResult = Omit<SeasonResult, 'leagueId' | 'teamId' | 'salary'> & {
+export type AmateurSeasonResult = Omit<SeasonResult, 'leagueId' | 'teamId' | 'salary' | 'postseason'> & {
   affiliationId: string;
   draft?: DraftResult;
   admissions?: CollegeAdmission[];
@@ -108,8 +126,12 @@ export type RetiredAmateurCareer = CareerState & {
   leagueId: null; teamId: null; amateur: AmateurCareer & { status: 'retired' };
 };
 
+export type TradeResult = { status: 'approved'; teamId: string } | { status: 'rejected' };
+
 export type ProfessionalCareer = CareerState & {
   leagueId: LeagueId; teamId: string; amateur?: AmateurCareer & { status: 'completed' };
+  pendingTrade?: TradeResult;
+  tradeRequestRejected?: true;
 };
 
 export type Career = ActiveAmateurCareer | RetiredAmateurCareer | ProfessionalCareer;
@@ -127,7 +149,7 @@ export type CreateCareerInput = CreatePlayerInput & (
 
 export interface StatRates {
   avg: number; obp: number; slg: number; ops: number; era: number; whip: number;
-  innings: string; totalBases: number;
+  innings: string; totalBases: number; winPct: number;
 }
 
 export type CareerTotals = Stats & StatRates & { seasons: number; championships: number; peakOverall: number };

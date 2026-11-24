@@ -7,6 +7,7 @@ export interface Team {
   city: string;
   color: string;
   leagueId: LeagueId;
+  logoSrc: string;
 }
 
 export interface League {
@@ -28,11 +29,11 @@ export const LEAGUES: League[] = [
   { id: "CPBL", name: "대만 프로야구", country: "대만", flag: "🇹🇼", games: 120, level: 0.68, color: "#26836A", description: "새로운 기회와 가능성이 기다리는 다이아몬드" },
 ];
 
-const team = (leagueId: LeagueId, key: string, name: string, shortName: string, city: string, color: string): Team => ({
-  id: `${leagueId.toLowerCase()}-${key}`, leagueId, name, shortName, city, color,
-});
+const team = (leagueId: LeagueId, key: string, name: string, shortName: string, city: string, color: string): Team => {
+  const id = `${leagueId.toLowerCase()}-${key}`;
+  return { id, leagueId, name, shortName, city, color, logoSrc: `/team-logos/${id}.webp` };
+};
 
-/** Team names are factual identifiers; the UI uses original text monograms, not official logos. */
 export const TEAMS: Team[] = [
   team("KBO", "lg", "LG 트윈스", "LG", "서울", "#C30452"),
   team("KBO", "doosan", "두산 베어스", "두산", "서울", "#17233E"),

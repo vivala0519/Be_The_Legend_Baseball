@@ -69,7 +69,9 @@ export default function Creator({ initialLeague, onClose, onCreate, hasCareer }:
   const attributes = role === "batter" ? BATTER_ATTRIBUTES : PITCHER_ATTRIBUTES;
   const positions = role === "batter" ? BATTER_POSITIONS : PITCHER_POSITIONS;
   const positionName = positions.find(option => option.value === position)?.label ?? position;
-  const hands = role === "batter" ? ["우투우타", "우투좌타", "좌투우타", "좌투좌타", "우투양타", "좌투양타"] : ["우투", "좌투"];
+  const hands = role === "batter"
+    ? ["우투우타", "우투좌타", "좌투우타", "좌투좌타", "우투양타", "좌투양타"]
+    : ["우투", "좌투", "우사", "좌사", "우언", "좌언"];
   const styleName = STYLES[role].find(candidate => candidate.id === style)?.name || style;
   const country = AMATEUR_COUNTRIES[countryCode];
   const affiliations = getAmateurAffiliations(countryCode);

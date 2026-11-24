@@ -142,9 +142,23 @@
 }
 .creator-picker-more:hover { background: var(--t-blue-50); }
 .amateur-mark.has-image { border: 1px solid var(--t-g200); background: var(--t-card); }
+
+.team-mark.has-logo {
+  overflow: hidden;
+  border: 1px solid var(--t-g200);
+  border-radius: 25%;
+  background: var(--t-card);
+}
+
+.team-mark.has-logo > img {
+  width: 100%;
+  height: 100%;
+  padding: 9%;
+  object-fit: contain;
+}
 .amateur-mark img { display: block; width: 85%; height: 85%; object-fit: contain; }
 .current-affiliation { display: flex; align-items: center; gap: 6px; }
-.current-affiliation .amateur-mark { width: 25px; height: 25px; font-size: 10px; }
+.current-affiliation .team-mark { width: 25px; height: 25px; font-size: 10px; }
 .creator-mark-source { color: var(--t-blue-press); text-decoration: underline; text-underline-offset: 2px; }
 
 .batter-position-picker {
@@ -668,6 +682,141 @@
   word-break: keep-all;
 }
 
+.season-detail-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 20px;
+  border-radius: 12px;
+  background: var(--t-g100);
+}
+
+.season-detail-switch button {
+  min-height: 42px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--t-g700);
+  font-weight: 700;
+}
+
+.season-detail-switch button[aria-pressed="true"] {
+  background: #fff;
+  color: var(--t-blue-press);
+  box-shadow: 0 1px 4px #191f2814;
+}
+
+.postseason-result-summary .t-li-end {
+  max-width: 43%;
+  text-align: right;
+  white-space: normal;
+  word-break: keep-all;
+}
+
+.postseason-champion {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #fff8e8;
+}
+
+.postseason-champion > span:nth-child(2) { flex: 1; }
+.postseason-champion small { display: block; color: #805b14; font-size: 12px; }
+.postseason-champion strong { display: block; margin-top: 3px; }
+.postseason-champion svg { color: #a06a12; flex: none; }
+
+.postseason-section { margin-top: 26px; }
+.postseason-section > h3 { margin: 0 0 12px; }
+.postseason-section > h3 small { display: inline-block; }
+.postseason-section > h4 { margin: 0 0 10px; font-size: 14px; }
+
+.postseason-bracket {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(134px, 1fr);
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 2px 8px;
+}
+
+.postseason-round {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px;
+  border-radius: 12px;
+  background: #f7f8fa;
+}
+
+.postseason-round > h4 {
+  margin: 0;
+  padding: 2px 0 3px;
+  color: var(--t-g800);
+  font-size: 12px;
+  text-align: center;
+  word-break: keep-all;
+}
+
+.postseason-series {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  width: 100%;
+  padding: 5px;
+  border: 1px solid var(--t-g200);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--t-g800);
+  text-align: left;
+}
+
+.postseason-series[aria-pressed="true"] {
+  border-color: var(--t-blue);
+  box-shadow: inset 0 0 0 1px var(--t-blue);
+}
+
+.postseason-series-group {
+  padding: 2px 4px 0;
+  color: var(--t-g600);
+  font-size: 11px;
+}
+
+.postseason-series-team {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 4px;
+  min-height: 30px;
+  padding: 2px 4px;
+  border-radius: 5px;
+  font-size: 12px;
+}
+
+.postseason-series-team.is-winner {
+  background: #eef5ff;
+  color: #1455a8;
+  font-weight: 700;
+}
+
+.postseason-series-team > .team-mark { width: 22px; height: 22px; font-size: 8px; }
+.postseason-team-name { display: flex; align-items: baseline; gap: 3px; word-break: keep-all; overflow-wrap: anywhere; }
+.postseason-team-name small { color: var(--t-g600); font-size: 11px; }
+.postseason-advantage { grid-column: 2 / -1; grid-row: 2; color: var(--t-g700); font-size: 11px; }
+.postseason-series-team > b { grid-column: 3; grid-row: 1; font-size: 13px; font-variant-numeric: tabular-nums; }
+.postseason-score { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.postseason-score small { display: block; margin-top: 2px; color: var(--t-g600); font-size: 11px; }
+
+@media (max-width: 520px) {
+  .postseason-bracket { grid-auto-flow: row; grid-auto-columns: auto; overflow-x: visible; }
+  .postseason-round { grid-template-columns: 1fr; }
+  .postseason-round:has(.postseason-series ~ .postseason-series) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .postseason-round > h4 { grid-column: 1 / -1; text-align: left; }
+}
+
 .transfer-eligibility {
   margin: 0 0 16px;
   padding: 6px 16px;
@@ -701,6 +850,41 @@
   word-break: keep-all;
 }
 
+.trade-request-action {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.trade-request-action > p {
+  color: var(--t-g600);
+  font-size: 12px;
+  text-align: center;
+}
+
+.trade-result {
+  display: grid;
+  gap: 20px;
+}
+
+.trade-result-team {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 16px;
+  background: var(--t-blue-50);
+}
+
+.trade-result p {
+  color: var(--t-g700);
+  font-size: 14px;
+  line-height: 1.5;
+  word-break: keep-all;
+}
+
+.trade-result-team p { margin-top: 4px; }
+
 @media (min-width: 700px) {
   .college-admission-options,
   .college-admission-details ul {
@@ -711,3 +895,27 @@
 @media (max-width: 420px) {
   .cj-stage { width: min(100%, 210px); }
 }
+
+.postseason-reveal-action,
+.postseason-series-result {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--t-blue-50);
+  color: var(--t-g900);
+}
+
+.postseason-reveal-action { justify-content: space-between; }
+.postseason-reveal-action > div { min-width: 0; }
+.postseason-reveal-action small,
+.postseason-series-result small { display: block; color: var(--t-g700); font-size: 12px; }
+.postseason-reveal-action strong { display: block; margin-top: 3px; line-height: 1.4; }
+.postseason-reveal-action > button { flex: none; min-height: 44px; white-space: nowrap; }
+.postseason-next-teams { display: block; margin-top: 4px; color: var(--t-g700); font-size: 13px; word-break: keep-all; }
+.postseason-series-result { margin-bottom: 10px; }
+.postseason-series-result strong { display: block; margin-bottom: 3px; }
+.postseason-series[data-next] { border-color: var(--t-blue); }
+.postseason-team-pending { color: var(--t-g600); }
+.postseason-team-placeholder { width: 22px; height: 22px; border-radius: 7px; background: var(--t-g100); }

@@ -9,7 +9,18 @@ import {AVATAR_OPTIONS,DEFAULT_AVATAR_ID} from "@/lib/avatars";
 import {getCollegeMark} from "@/lib/college-marks";
 import {getTeam} from "@/lib/leagues";
 export function BrandBall({size=27}:{size?:number}){return <svg width={size} height={size} viewBox="0 0 40 40" fill="none" aria-hidden="true"><circle cx="20" cy="20" r="17" stroke="currentColor" strokeWidth="2"/><path d="M8 7c15 5 15 21 0 26M32 7c-15 5-15 21 0 26" stroke="currentColor" strokeWidth="1.6"/><path d="m11 10-2 3m5 1-3 3m4 2-3 2m2 3-3 2m18-16 2 3m-5 1 3 3m-4 2 3 2m-2 3 3 2" stroke="currentColor" strokeWidth="1.4"/></svg>}
-export function TeamMark({id,large=false}:{id:string;large?:boolean}){const t=getTeam(id);return <span className={`team-mark ${large?"large":""}`} style={{"--team":t.color} as CSSProperties}>{t.shortName.slice(0,2)}</span>}
+export function TeamMark({id,large=false}:{id:string;large?:boolean}) {
+  const [failedSrc, setFailedSrc] = useState<string>();
+  const team = getTeam(id);
+  const showLogo = failedSrc !== team.logoSrc;
+  const size = large ? 48 : 32;
+  return <span className={`team-mark${large ? " large" : ""}${showLogo ? " has-logo" : ""}`}
+    style={{"--team":team.color} as CSSProperties} aria-hidden="true">
+    {showLogo
+      ? <Image src={team.logoSrc} width={size} height={size} alt="" unoptimized onError={() => setFailedSrc(team.logoSrc)} />
+      : team.shortName.slice(0,2)}
+  </span>;
+}
 export function AmateurMark({id,large=false}:{id:string;large?:boolean}) {
   const [failedSrc, setFailedSrc] = useState<string>();
   const affiliation = getSchoolOpponent(id);
