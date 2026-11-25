@@ -109,6 +109,19 @@ npm run build
 - 성장에는 나이·남은 잠재력·육성·출전·건강과 시즌 운영을 반영합니다.
 - 40세 시즌을 마친 프로 선수에게는 다음 시즌 계약 제안이 오지 않습니다. 비시즌 화면에서 **은퇴하기**를 선택하면 선수 생활을 마무리합니다.
 
+### 트로피 캐비닛
+
+리그별로 같은 타이틀의 트로피를 겹쳐 표시합니다. 묶음을 누르면 아래에 타이틀명과 수상 연도가 최신순으로 펼쳐집니다.
+
+**정규시즌 우승**은 기존 시리즈 트로피 이미지로, **포스트시즌 우승**은 우승반지로 표시합니다. 게임에서는 KBO 1위, NPB 센트럴·퍼시픽 각 1위, MLB 각 지구 우승, CPBL 전·후반기를 합친 연간 1위를 정규시즌 우승으로 집계합니다. 리그 순위가 저장된 시즌에도 적용합니다. 기존 `리그 우승` 수상 기록은 포스트시즌 우승에 포함됩니다.
+
+수상 타이틀과 리그에 맞춰 대표적인 실물 형태와 소재를 참고한 3D 렌더를 사용합니다. 투명 배경의 WebP 25종을 `public/award-trophies-3d/`에 저장합니다. 공통 형태의 기록상은 리그별 아이콘을 공유합니다. 실물 기준을 확인하지 못했거나 게임에서 만든 상은 게임용 메달로 표현합니다.
+
+- KBO 우승반지는 LG 트윈스 2023년 반지의 루비 테두리와 트로피 장식을 참고했습니다. [LG 전시](https://www.lg.co.kr/media/release/27455) · [우승반지 수여 사진](https://www.newsis.com/view/?id=NISI20240323_0020277514&pc_view=1) · [MVP·신인상](https://www.koreabaseball.com/MediaNews/News/KboPhoto/View.aspx?bdSe=515169) · [기록상](https://www.koreabaseball.com/MediaNews/News/KboPhoto/View.aspx?bdSe=515179) · [골든글러브 제작사](https://myfacestory.net/product/detail.html?cate_no=133&display_group=1&product_no=1272)
+- NPB 우승반지는 소프트뱅크 호크스 2011년 반지의 화이트골드와 노란 시트린을 참고했습니다. [반지 제작사](https://philip-collegering.com/japan_championrings/) · [NPB 시상식](https://npb.jp/news/detail/20251126_02.html) · [미쓰이 골든글러브 제작](https://mgg.mitsuipr.com/report/2012/hyosho.html)
+- MLB 우승반지는 LA 다저스 2024년 반지의 옐로골드와 파란 사파이어를 참고했습니다. [Jostens 우승반지](https://www.jostens.com/about/press-center/jostens-honors-the-los-angeles-dodgers-and-their-eighth-world-series-victory-with-a-spectacular-ring) · [MLB MVP 시상식](https://www.mlb.com/video/shohei-ohtani-receives-al-mvp) · [사이영상 시상](https://www.mlb.com/news/sandy-alcantara-receives-official-2023-nl-cy-young-award) · [신인왕 상패](https://x.com/baseballhall/status/1855325795557797940) · [Rawlings 골드글러브](https://www.prnewswire.com/news-releases/2022-rawlings-gold-glove-award-winners-revealed-301665447.html) · [타격왕](https://www.mlb.com/news/tony-gwynn-rod-carew-worthy-of-new-honors-c189734278) · [최우수 불펜](https://www.mlb.com/press-release/press-release-emmanuel-clase-edwin-diaz-earn-the-2022-rivera-and-hoffman-awards)
+- CPBL 우승반지는 웨이취안 드래곤스 2023년 반지의 붉은 W 장식을 참고했습니다. [CPBL 증정식](https://www.youtube.com/watch?v=Qo_ioGG9IFc) · [우승반지 실물 사진](https://tsna.com/article/85568) · [개인상 전시 사진](https://tccho.wingzero.tw/?p=2099) · [CPBL 골든글러브 공개](https://cpbl.com.tw/xmdoc/cont?sid=0L132507024067806309)
+
 ## 저장
 
 진행 상황은 플레이 중인 브라우저의 localStorage에 자동 저장합니다. 설정에서 JSON 파일로 저장하거나 파일을 불러와 다른 기기로 옮길 수 있습니다. 브라우저 데이터 삭제와 저장 공간 제한에 대비해 중요한 커리어는 파일로 보관하세요.

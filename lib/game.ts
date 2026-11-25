@@ -14,6 +14,7 @@ import type { KoreanHighSchoolCompetition, KoreanHighSchoolCompetitionId } from 
 import { getPostseasonGroup, playProPostseason, rankPostseasonStandings } from './pro-postseason';
 import type { PostseasonBracket, PostseasonStanding } from './pro-postseason';
 import { getInitialPostseasonSeriesCount, getPostseasonElimination, getPostseasonSeriesCount } from './postseason-progress';
+import { POSTSEASON_CHAMPIONSHIP_AWARD, isPostseasonChampionshipAward } from './game-types';
 import type { ActiveAmateurCareer, AmateurCompetitionResult, AmateurSeasonResult, Attributes, Career, CareerEvent, CareerTotals, CollegeAdmission, CreateCareerInput, DraftResult, GameSummary, AmateurCompetitionOutcome, LeagueId, NewsItem, Offer, Player, PostseasonPlayerGame, ProfessionalCareer, ProPostseasonResult, RegularSeasonMatchup, SeasonResult, StatRates, Stats } from './game-types';
 
 export * from './game-types';
@@ -1482,10 +1483,10 @@ export function advancePostseason(input: Career): Career {
 function finishPostseason(career: ProfessionalCareer, season: SeasonResult, postseason: ProPostseasonResult) {
   postseason.revealedSeriesCount = getPostseasonSeriesCount(postseason);
   if (postseason.championId === season.teamId) {
-    const award = '리그 우승';
+    const award = POSTSEASON_CHAMPIONSHIP_AWARD;
     season.championship = true;
     season.awards.push(award);
-    season.highlights.push(`${getTeam(season.teamId).name}와 함께 들어 올린 우승 트로피`);
+    season.highlights.push(`${getTeam(season.teamId).name}의 포스트시즌 우승 반지`);
     career.awards.push({ year: career.year, leagueId: career.leagueId, name: award });
     event(career, award, `${career.year} ${getLeague(career.leagueId).name} ${award}의 주인공이 되었습니다.`, 'award');
     career.hallScore = rounded(career.hallScore + 3, 1);
@@ -1762,7 +1763,7 @@ function validProPostseason(season: SeasonResult, stored: unknown) {
     && sameBracketValue(reconstructed, stored) && stored.qualified === qualified
     && season.teamRecord.rank === regularSeasonRank(standings, leagueId, teamId, reconstructed)
     && season.championship === (championshipRevealed && reconstructed.championId === teamId)
-    && (championshipRevealed || !season.awards.includes('리그 우승'));
+    && (championshipRevealed || !season.awards.some(isPostseasonChampionshipAward));
 }
 
 function validCompetitionResult(result: Record<string, unknown>, expected: AmateurCompetitionResult) {

@@ -94,6 +94,11 @@ export interface CareerEvent {
   id: string; year: number; title: string; text: string;
   kind: 'debut' | 'milestone' | 'award' | 'transfer' | 'injury' | 'retirement' | 'development';
 }
+export const REGULAR_SEASON_CHAMPIONSHIP_AWARD = '정규시즌 우승';
+export const POSTSEASON_CHAMPIONSHIP_AWARD = '포스트시즌 우승';
+export function isPostseasonChampionshipAward(name: string): boolean {
+  return name === POSTSEASON_CHAMPIONSHIP_AWARD || name === '리그 우승';
+}
 export interface Award { year: number; leagueId: LeagueId; name: string }
 export interface Offer {
   id: string; leagueId: LeagueId; teamId: string; salary: number; years: number;

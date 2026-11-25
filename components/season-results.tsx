@@ -5,11 +5,12 @@ import { CalendarDays, ChevronRight, Trophy } from "lucide-react";
 import { AMATEUR_COUNTRIES } from "@/lib/amateur";
 import { COLLEGE_COMPETITIONS, getCareerAffiliation } from "@/lib/amateur-college";
 import { getAmateurCompetition } from "@/lib/amateur-competitions";
-import { ATTRIBUTE_LABELS, statsRates, summarizeGames } from "@/lib/game";
+import { ATTRIBUTE_LABELS, POSTSEASON_CHAMPIONSHIP_AWARD, REGULAR_SEASON_CHAMPIONSHIP_AWARD, isPostseasonChampionshipAward, statsRates, summarizeGames } from "@/lib/game";
 import { getLeague, getTeam } from "@/lib/leagues";
 import type { AmateurSeasonResult, GameSummary, PostseasonPlayerGame, ProPostseasonResult, SeasonResult, Stats } from "@/lib/game-types";
-import { getPostseasonGroup } from "@/lib/pro-postseason";
+import { getPostseasonDivision, getPostseasonGroup } from "@/lib/pro-postseason";
 import { getPostseasonProgress } from "@/lib/postseason-progress";
+import { wonRegularSeasonTitle } from "@/lib/regular-season-title";
 import { AmateurMark, decimal, TeamMark } from "@/components/game-ui";
 import { PostseasonBracketView } from "@/components/postseason-bracket";
 
@@ -136,7 +137,12 @@ export function SeasonResultView({ result: s, onDetail, onPostseasonDetail, onAd
   const revealedSeriesCount = postseason?.revealedSeriesCount;
   const stagedPostseason = !amateur && postseason && revealedSeriesCount !== undefined;
   const regularGroup = !amateur && postseason ? getPostseasonGroup(s.leagueId, s.teamId) : undefined;
-  const displayedAwards = postseason ? s.awards.filter(award => award !== "리그 우승") : s.awards;
+  const displayedAwards = postseason ? s.awards.filter(award => !isPostseasonChampionshipAward(award))
+    : amateur ? s.awards : s.awards.map(award => isPostseasonChampionshipAward(award) ? POSTSEASON_CHAMPIONSHIP_AWARD : award);
+  if (!amateur && wonRegularSeasonTitle(s) && !displayedAwards.includes(REGULAR_SEASON_CHAMPIONSHIP_AWARD)) {
+    const division = getPostseasonDivision(s.leagueId, s.teamId);
+    displayedAwards.unshift(division ? `${division} 우승` : REGULAR_SEASON_CHAMPIONSHIP_AWARD);
+  }
   const competitions = competitionResultsOf(s);
   const firstNews = s.news[0];
   const fanNews = s.news.slice(1);
