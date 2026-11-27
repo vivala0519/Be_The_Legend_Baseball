@@ -4,17 +4,20 @@ import {ArrowRight,ArrowLeftRight,BarChart3,BookOpen,CalendarDays,Check,CheckCir
 import {LEAGUES,getLeague,getTeam,teamsForLeague,type LeagueId} from "@/lib/leagues";
 import {AMATEUR_COUNTRIES,getAmateurAffiliation} from "@/lib/amateur";
 import {COLLEGE_SEASONS,getCareerAffiliation} from "@/lib/amateur-college";
-import {createCareer,simulateSeason,advancePostseason,hasPendingPostseason,advanceOffseason,retireCareer,getOverall,careerTotals,validateCareer,statsRates,getTransferEligibility,getTransferOfferKind,getProfessionalOffseasonOffers,canRequestTrade,requestTrade,confirmTrade,ATTRIBUTE_LABELS,BATTER_ATTRIBUTES,PITCHER_ATTRIBUTES,HALL_THRESHOLD} from "@/lib/game";
+import {createCareer,simulateSeason,advancePostseason,hasPendingPostseason,advanceOffseason,retireCareer,getOverall,getCareerPeakOverall,careerTotals,validateCareer,normalizeBatterPosition,statsRates,getTransferEligibility,getTransferOfferKind,getProfessionalOffseasonOffers,canRequestTrade,requestTrade,confirmTrade,ATTRIBUTE_LABELS,BATTER_ATTRIBUTES,PITCHER_ATTRIBUTES} from "@/lib/game";
 import type {AmateurSeasonResult,Career,CreateCareerInput,Offer,PlayerRole,ProfessionalCareer,SeasonResult,TradeResult} from "@/lib/game-types";
-import {AmateurMark,BrandBall,TeamMark,Avatar,Modal,StatTile,Empty,money,decimal} from "@/components/game-ui";
+import {AmateurMark,BrandBall,TeamMark,Avatar,Modal,StatTile,Empty,money,decimal,getPlayerHandLabel} from "@/components/game-ui";
 import Creator from "@/components/creator";
 import {DraftResultView} from "@/components/draft-result";
 import {SeasonResultView,SeasonDetail} from "@/components/season-results";
+import {ArchivedCareerDetails} from "@/components/archived-career-details";
 import {TrophyCabinet} from "@/components/trophy-cabinet";
+import {readArchivedCareer,readArchivedCareerPeakOveralls,saveArchivedCareer} from "@/lib/career-archive";
 import {getCabinetAwards} from "@/lib/regular-season-title";
 
 const STYLE_LABELS:Record<string,string>={contact:"정교한 컨택형",power:"한 방의 거포형",speed:"주루형 올라운더",velocity:"강속구형",control:"제구형",breaking:"변화구형"};
 const SAVE_KEY="bench-to-hall-career-v1",ARCHIVE_KEY="bench-to-hall-archive-v1";
+const ARCHIVE_LIMIT=40;
 const NAV=[{id:"home",label:"홈",icon:House},{id:"season",label:"시즌",icon:CalendarDays},{id:"records",label:"기록",icon:BarChart3}] as const;
 const CAREER_JOURNEY_STAGES = [
   { label: "벤치", caption: "벤치 끝자리에서", imageAlt: "남색 모자를 쓴 타자가 더그아웃 벤치에 앉아 있는 모습" },
@@ -24,9 +27,64 @@ const CAREER_JOURNEY_STAGES = [
   { label: "명예의 전당", caption: "명예의 전당에 남을 이름", imageAlt: "남색 모자를 쓴 타자가 명예의 전당에 헌액된 모습" },
 ] as const;
 type Tab=typeof NAV[number]["id"]|"hall";
-type Legacy={id:string;name:string;avatar:number;position:string;start:number;end:number;seasons:number;games:number;score:number;hall:boolean};
+type Legacy={id:string;name:string;avatar:number;position:string;start:number;end:number;seasons:number;games:number;peakOverall?:number;score:number;hall:boolean};
+type ArchiveSelection={summary:Legacy;career?:Career;loading:boolean;error?:string};
 type PlayedSeason=SeasonResult|AmateurSeasonResult;
 const PLANS=[{id:"balanced",name:"균형 잡힌 시즌",text:"출전과 회복의 균형",icon:Shield},{id:"aggressive",name:"한계에 도전",text:"더 많은 기회, 높은 피로",icon:TrendingUp},{id:"rest",name:"몸부터 탄탄하게",text:"회복과 컨디션에 집중",icon:Heart}] as const;
+
+function readArchives(): Legacy[] {
+ const entries:unknown=JSON.parse(localStorage.getItem(ARCHIVE_KEY)??"[]");
+ return Array.isArray(entries)
+   ? entries.filter((entry):entry is Legacy=>!!entry&&typeof entry.id==="string"&&typeof entry.name==="string"&&Number.isFinite(entry.score))
+     .slice(0,ARCHIVE_LIMIT).map(entry=>{
+       const position=typeof entry.position==="string"?normalizeBatterPosition(entry.position):entry.position;
+       const peak=entry.peakOverall;
+       const peakOverall=peak===undefined||(Number.isInteger(peak)&&peak>=1&&peak<=99)?peak:undefined;
+       return position===entry.position&&peakOverall===peak?entry:{...entry,position,peakOverall};
+     })
+   : [];
+}
+
+function storeArchivePeakOveralls(peaks: ReadonlyMap<string, number>): Legacy[] | undefined {
+ if(peaks.size===0)return;
+ try {
+   const previous=readArchives();
+   const next=previous.map(entry=>{
+     const peak=peaks.get(entry.id);
+     return peak!==undefined&&peak>(entry.peakOverall??0)?{...entry,peakOverall:peak}:entry;
+   });
+   if(next.every((entry,index)=>entry===previous[index]))return;
+   localStorage.setItem(ARCHIVE_KEY,JSON.stringify(next));
+   return next;
+ }catch{
+   return undefined;
+ }
+}
+
+const ARCHIVE_SAVE_ERROR="커리어 기록을 보관하지 못했어요. 저장 설정에서 파일로 저장해 주세요.";
+
+function getArchiveSummary(c:Career): Legacy {
+ return {
+   id:c.id,name:c.player.name,avatar:c.player.avatar,position:c.player.position,
+   start:c.amateur?.history[0]?.year??c.history[0]?.year??c.year,
+   end:c.history.at(-1)?.year??c.amateur?.history.at(-1)?.year??c.year,
+   seasons:c.teamId===null?c.amateur.history.length:c.history.length,
+   games:c.teamId===null?c.amateur.history.reduce((games,season)=>games+season.stats.g,0):careerTotals(c).g,
+   peakOverall:getCareerPeakOverall(c),
+   score:c.hallScore,hall:!!c.retirement?.hallOfFame,
+ };
+}
+
+async function saveCareerArchive(c:Career, entry=getArchiveSummary(c)): Promise<Legacy[]> {
+ try {
+   await saveArchivedCareer(c);
+   const next=[entry,...readArchives().filter(previous=>previous.id!==c.id)].slice(0,ARCHIVE_LIMIT);
+   localStorage.setItem(ARCHIVE_KEY,JSON.stringify(next));
+   return next;
+ }catch{
+   throw new Error(ARCHIVE_SAVE_ERROR);
+ }
+}
 
 function RecordsTable({title,role,seasons,onDetail,filter}: {title:string;role:PlayerRole;seasons:PlayedSeason[];onDetail:(season:PlayedSeason)=>void;filter?:ReactNode}) {
  const batter=role==="batter";
@@ -136,6 +194,8 @@ function ProfessionalOffseason({career,offers,selectedId,onSelect,onContinue,onR
 
 export default function GameApp(){
  const [tab,setTab]=useState<Tab>("home"),[career,setCareer]=useState<Career|null>(null),[archives,setArchives]=useState<Legacy[]>([]),[loaded,setLoaded]=useState(false);
+ const [archiveSelection,setArchiveSelection]=useState<ArchiveSelection|null>(null);
+ const replacingCareer=useRef(false);
  const [creator,setCreator]=useState(false),[initialLeague,setInitialLeague]=useState<LeagueId>("KBO"),[guide,setGuide]=useState(false),[settings,setSettings]=useState(false),[explore,setExplore]=useState<LeagueId|null>(null);
  const [toast,setToast]=useState(""),[saving,setSaving]=useState(true),[busy,setBusy]=useState(false),[progress,setProgress]=useState(0),[offerId,setOfferId]=useState(""),[detail,setDetail]=useState<{season:PlayedSeason;initialView?:"postseason"}|null>(null),[recordLeague,setRecordLeague]=useState("all"),[retiring,setRetiring]=useState(false);
  const [journey,setJourney]=useState(0);
@@ -147,8 +207,90 @@ export default function GameApp(){
  const tradeResultVisible=!!pendingTrade&&pendingTrade===revealedTrade;
  const journeyStage=CAREER_JOURNEY_STAGES[journey];
  const importRef=useRef<HTMLInputElement>(null),timers=useRef<ReturnType<typeof setTimeout>[]>([]);
- useEffect(()=>{try{const raw=localStorage.getItem(SAVE_KEY);if(raw){const c=validateCareer(JSON.parse(raw));if(c){setCareer(c);if(hasPendingPostseason(c))setTab("season")}else setToast("이전 저장을 읽지 못했어요. 설정에서 저장 파일을 불러와 주세요.")}const a:unknown=JSON.parse(localStorage.getItem(ARCHIVE_KEY)||"[]");if(Array.isArray(a))setArchives(a.filter((x):x is Legacy=>!!x&&typeof x.id==="string"&&typeof x.name==="string"&&Number.isFinite(x.score)).slice(0,20))}catch{setToast("브라우저 저장을 읽지 못했어요. 파일을 불러오거나 새로 시작해 주세요.")}setLoaded(true);return()=>{timers.current.forEach(clearTimeout)}},[]);
- useEffect(()=>{if(!loaded||!career)return;try{localStorage.setItem(SAVE_KEY,JSON.stringify(career));setSaving(true)}catch{setSaving(false);setToast("저장 공간이 부족해요. 설정에서 파일로 저장해 주세요.")}},[career,loaded]);
+ useEffect(()=>{
+   let mounted=true;
+   let activeCareer:Career|undefined;
+   const scheduledTimers=timers.current;
+
+   function syncArchives(){
+     try{
+       const entries=readArchives();
+       setArchives(entries);
+       const missing=entries.filter(entry=>entry.peakOverall===undefined).map(entry=>entry.id);
+       if(missing.length===0)return;
+
+       void readArchivedCareerPeakOveralls(missing).catch(()=>new Map<string,number>()).then(peaks=>{
+         if(!mounted)return;
+         if(activeCareer&&missing.includes(activeCareer.id)&&!peaks.has(activeCareer.id)){
+           peaks.set(activeCareer.id,getCareerPeakOverall(activeCareer));
+         }
+         const updated=storeArchivePeakOveralls(peaks);
+         if(updated)setArchives(updated);
+       });
+     }
+     catch{setToast("브라우저 보관함을 읽지 못했어요.")}
+   }
+   function onStorage(event:StorageEvent){
+     if(event.storageArea===localStorage&&(event.key===ARCHIVE_KEY||event.key===null))syncArchives();
+   }
+
+   window.addEventListener("storage",onStorage);
+   queueMicrotask(()=>{
+     if(!mounted)return;
+     try {
+       const raw=localStorage.getItem(SAVE_KEY);
+       if(raw){
+         const c=validateCareer(JSON.parse(raw));
+         if(c){activeCareer=c;setCareer(c);if(hasPendingPostseason(c))setTab("season")}
+         else setToast("이전 저장을 읽지 못했어요. 설정에서 저장 파일을 불러와 주세요.");
+       }
+     }catch{setToast("브라우저 저장을 읽지 못했어요. 파일을 불러오거나 새로 시작해 주세요.")}
+     syncArchives();
+     setLoaded(true);
+   });
+   return()=>{
+     mounted=false;
+     window.removeEventListener("storage",onStorage);
+     scheduledTimers.forEach(clearTimeout);
+   };
+ },[]);
+ useEffect(()=>{
+   if(!loaded||!career)return;
+   let active=true;
+   queueMicrotask(()=>{
+     if(!active)return;
+     try {
+       localStorage.setItem(SAVE_KEY,JSON.stringify(career));
+       setSaving(true);
+     }catch{
+       setSaving(false);
+       setToast("저장 공간이 부족해요. 설정에서 파일로 저장해 주세요.");
+     }
+   });
+   return()=>{active=false};
+ },[career,loaded]);
+ useEffect(()=>{
+   if(career?.phase!=="retired")return;
+   let active=true;
+   async function ensureRetirementArchived(retired:Career){
+     try {
+       // Recheck retired saves after reload in case the previous archive write was interrupted.
+       const expected=getArchiveSummary(retired);
+       const summary=readArchives().find(entry=>entry.id===retired.id);
+       if(summary&&(Object.keys(expected) as (keyof Legacy)[]).every(key=>summary[key]===expected[key])){
+         const saved=await readArchivedCareer(retired.id);
+         if(saved?.phase==="retired"&&saved.year===retired.year&&saved.seed===retired.seed)return;
+       }
+       if(!active)return;
+       const entries=await saveCareerArchive(retired,expected);
+       if(active)setArchives(entries);
+     }catch{
+       if(active)setToast(ARCHIVE_SAVE_ERROR);
+     }
+   }
+   void ensureRetirementArchived(career);
+   return()=>{active=false};
+ },[career]);
  useEffect(()=>{if(!toast)return;const t=setTimeout(()=>setToast(""),4500);return()=>clearTimeout(t)},[toast]);
  useEffect(()=>{document.querySelector(".main-content")?.scrollTo({top:0})},[tab,reviewed]);
  useEffect(() => {
@@ -198,21 +340,26 @@ export default function GameApp(){
  const transferOffers=career?.teamId&&career.phase==="offseason"?getProfessionalOffseasonOffers(career):[];
  const selectedOfferId=transferOffers.find(offer=>offer.id===offerId)?.id??transferOffers[0]?.id;
  function start(id:LeagueId="KBO"){setInitialLeague(id);setCreator(true)}
- function archive(c:Career){
-   const entry:Legacy={
-     id:c.id,name:c.player.name,avatar:c.player.avatar,position:c.player.position,
-     start:c.amateur?.history[0]?.year??c.history[0]?.year??c.year,
-     end:c.history.at(-1)?.year??c.amateur?.history.at(-1)?.year??c.year,
-     seasons:c.teamId===null?c.amateur.history.length:c.history.length,
-     games:c.teamId===null?c.amateur.history.reduce((games,season)=>games+season.stats.g,0):careerTotals(c).g,
-     score:c.hallScore,hall:!!c.retirement?.hallOfFame,
-   };
-   setArchives(previous=>{const next=[entry,...previous.filter(x=>x.id!==c.id)].slice(0,20);try{localStorage.setItem(ARCHIVE_KEY,JSON.stringify(next))}catch{setToast("커리어 요약을 보관하지 못했어요. 파일로 저장해 주세요.")}return next});
+ function openArchive(summary:Legacy){
+   const request:ArchiveSelection={summary,loading:true};
+   setArchiveSelection(request);
+   const currentCareer=career?.id===summary.id?career:undefined;
+   void readArchivedCareer(summary.id).then(saved=>{
+     setArchiveSelection(current=>current===request?{summary,career:saved??currentCareer,loading:false}:current);
+   },()=>{
+     setArchiveSelection(current=>current===request?{
+       summary,career:currentCareer,loading:false,
+       error:currentCareer?undefined:"보관된 상세 기록을 읽지 못했어요.",
+     }:current);
+   });
  }
- function onCreate(input:CreateCareerInput){
+
+ async function onCreate(input:CreateCareerInput){
+   if(replacingCareer.current)return;
+   replacingCareer.current=true;
    try {
      const created=createCareer(input);
-     if(career)archive(career);
+     if(career)setArchives(await saveCareerArchive(career));
      setCareer(created);
      setCreator(false);
      setTab("season");
@@ -220,10 +367,12 @@ export default function GameApp(){
      setReview("pending");
    } catch (error) {
      setToast(error instanceof Error?error.message:"커리어를 만들지 못했어요.");
+   }finally{
+     replacingCareer.current=false;
    }
  }
  function runSeason(){if(!career||busy||career.phase!=="ready")return;playSeason(career)}
- function playSeason(current:Career){setBusy(true);setReview("pending");setProgress(0);let result:Career;try{result=simulateSeason(current)}catch{setBusy(false);setToast("시즌을 완료하지 못했어요. 저장 파일을 확인해 주세요.");return}for(let i=1;i<=4;i++)timers.current.push(setTimeout(()=>setProgress(i),i*350));timers.current.push(setTimeout(()=>{setCareer(result);setBusy(false);setTab("season");setOfferId(result.offers[0]?.id||"");if(result.phase==="retired")archive(result)},1650))}
+ function playSeason(current:Career){setBusy(true);setReview("pending");setProgress(0);let result:Career;try{result=simulateSeason(current)}catch{setBusy(false);setToast("시즌을 완료하지 못했어요. 저장 파일을 확인해 주세요.");return}for(let i=1;i<=4;i++)timers.current.push(setTimeout(()=>setProgress(i),i*350));timers.current.push(setTimeout(()=>{setCareer(result);setBusy(false);setTab("season");setOfferId(result.offers[0]?.id||"")},1650))}
  function revealNextPostseason(){
    if(!career||!pendingPostseason)return;
    setCareer(current=>current===career?advancePostseason(career):current);
@@ -237,7 +386,6 @@ export default function GameApp(){
      setReview("pending");
      setOfferId("");
      if(next.phase==="retired"){
-       archive(next);
        setTab("hall");
      }else if(career.teamId===null){
        setTab("season");
@@ -281,12 +429,32 @@ export default function GameApp(){
    setRetiring(false);
    if(retired.phase!=="retired")return;
    setCareer(retired);
-   archive(retired);
    go("hall");
  }
  function train(key:string){if(!career||career.phase==="retired")return;if(!career.training.includes(key)&&career.training.length>=2){setToast("집중 육성은 최대 두 개까지 선택할 수 있어요.");return}const t=career.training.includes(key)?career.training.filter(x=>x!==key):[...career.training,key];if(!t.length){setToast("집중 육성을 한 개 이상 선택해 주세요.");return}setCareer({...career,training:t})}
  function exportSave(){if(!career)return;const url=URL.createObjectURL(new Blob([JSON.stringify({format:"bench-to-hall",version:1,career},null,2)],{type:"application/json"}));const a=document.createElement("a");a.href=url;a.download=`벤치에서명예의전당까지-${career.player.name}-${career.year}.json`;a.click();URL.revokeObjectURL(url);setToast("커리어를 파일로 저장했어요.")}
- async function importSave(file?:File){if(!file)return;if(file.size>12000000){setToast("12MB 이하의 저장 파일을 선택해 주세요.");return}try{const value=JSON.parse(await file.text());const c=validateCareer(value.career??value);if(!c)throw Error();if(career)archive(career);setCareer(c);setSettings(false);setTab(hasPendingPostseason(c)?"season":"home");setOfferId("");setReview("pending");setToast("커리어를 불러왔어요.")}catch{setToast("올바른 커리어 저장 파일을 선택해 주세요.")}if(importRef.current)importRef.current.value=""}
+ async function importSave(file?:File){
+   if(!file||replacingCareer.current)return;
+   replacingCareer.current=true;
+   try {
+     if(file.size>12000000){setToast("12MB 이하의 저장 파일을 선택해 주세요.");return}
+     const value=JSON.parse(await file.text());
+     const c=validateCareer(value?.career??value);
+     if(!c){setToast("올바른 커리어 저장 파일을 선택해 주세요.");return}
+     if(career)setArchives(await saveCareerArchive(career));
+     setCareer(c);
+     setSettings(false);
+     setTab(hasPendingPostseason(c)?"season":"home");
+     setOfferId("");
+     setReview("pending");
+     setToast("커리어를 불러왔어요.");
+   }catch(error){
+     setToast(error instanceof Error&&!(error instanceof SyntaxError)?error.message:"올바른 커리어 저장 파일을 선택해 주세요.");
+   }finally{
+     replacingCareer.current=false;
+     if(importRef.current)importRef.current.value="";
+   }
+ }
  const go=(id:Tab)=>{setTab(id);window.scrollTo({top:0,behavior:"smooth"})};
  if(creator)return <div className="app-shell creator-shell">
    <Creator initialLeague={initialLeague} onClose={()=>setCreator(false)} onCreate={onCreate} hasCareer={!!career}/>
@@ -309,7 +477,7 @@ export default function GameApp(){
      <Avatar avatar={career.player.avatar}/>
      <div>
         <p className="t-label">{career.year} {amateurOnly?"아마추어 ":""}시즌 · {career.player.age}세</p>
-       <h2>{career.player.name} <span>#{career.player.number}</span></h2>
+       <h2>{career.player.name}</h2>
         <p className="current-affiliation">
           {career.teamId===null ? affiliation&&<AmateurMark id={affiliation.id}/> : <TeamMark id={career.teamId}/>}
           <span>{teamName} · {career.player.position}</span>
@@ -343,7 +511,7 @@ export default function GameApp(){
      </li>)}
    </ol>
  </section>
- <section className="t-card rt-card"><div className="t-card-head"><h3>나의 레전드</h3><button type="button" onClick={()=>go("hall")}>전체 보기 <ChevronRight size={15}/></button></div>{archives.length?<div className="rt-list">{archives.slice().sort((a,b)=>b.score-a.score).slice(0,3).map((c,i)=><button key={c.id} className="rt-row" onClick={()=>go("hall")}><span className="rt-rank">{i+1}</span><Avatar avatar={c.avatar} small/><span className="rt-player"><b>{c.name}</b><small>{c.position} · {c.seasons}시즌</small></span><span className="rt-score">{c.hall&&<Trophy size={15}/>} {c.score}<small>레거시</small></span></button>)}</div>:<div className="rt-empty"><Avatar small/><div><b>첫 번째 전설을 기다리고 있어요</b><p>커리어를 완성하고 이곳에 이름을 남겨 보세요.</p></div></div>}</section>
+ <section className="t-card rt-card"><div className="t-card-head"><h3>나의 레전드</h3><button type="button" onClick={()=>go("hall")}>전체 보기 <ChevronRight size={15}/></button></div>{archives.length?<div className="rt-list">{archives.slice().sort((a,b)=>b.score-a.score).slice(0,3).map((c,i)=><button key={c.id} className="rt-row" onClick={()=>go("hall")}><span className="rt-rank">{i+1}</span><Avatar avatar={c.avatar} small/><span className="rt-player"><b>{c.name}</b><small>{c.position} · {c.seasons}시즌</small></span><span className="rt-score">{c.hall&&<Trophy size={15}/>} {c.peakOverall??"—"}<small>최고 OVR</small></span></button>)}</div>:<div className="rt-empty"><Avatar small/><div><b>첫 번째 전설을 기다리고 있어요</b><p>커리어를 완성하고 이곳에 이름을 남겨 보세요.</p></div></div>}</section>
  {/*<section className="t-card league-list-card"><div className="t-card-head"><h3>네 개의 리그, 나만의 야구 인생</h3></div>{LEAGUES.map(l=><button type="button" className="league-list-row" key={l.id} onClick={()=>setExplore(l.id)}><span className="league-flag">{l.flag}</span><span><b>{l.name}</b><small>{teamsForLeague(l.id).length}개 구단 · {l.games}경기</small></span><ChevronRight size={18}/></button>)}</section>*/}
  <div className="home-fixed-action">{retiredActions??<button type="button" className="button primary" onClick={()=>career?go("season"):start()}>{!career?"새로운 인생 시작하기":career.phase==="ready"?`${career.year} 시즌 준비하기`:pendingPostseason?"포스트시즌 이어가기":"시즌 결과 확인하기"}</button>}</div>
  </>}
@@ -438,9 +606,9 @@ export default function GameApp(){
       </div>
       <div className="player-page-grid">
         <section className="player-card">
-          <span className="eyebrow">PLAYER CARD</span><span className="card-number">{String(career.player.number).padStart(2,"0")}</span>
+          <span className="eyebrow">PLAYER CARD</span>
           <Avatar avatar={career.player.avatar}/><h2>{career.player.name}</h2>
-          <p>{career.player.nationality} · {career.player.age}세 · {career.player.hand}</p>
+          <p>{career.player.nationality} · {career.player.age}세 · {getPlayerHandLabel(career.player.role,career.player.hand)}</p>
           <div className="player-card-team">
             {career.teamId!==null?<TeamMark id={career.teamId}/>:<AmateurMark id={affiliation?.id??career.amateur.affiliationId}/>} {teamName}
           </div>
@@ -456,11 +624,10 @@ export default function GameApp(){
       <div className="quick-stats">
         {amateurOnly?<StatTile label="과정 내 시즌 완료" value={`${completedStageSeasons} / ${stageSeasons}`} detail={amateurLabel}/>
           :<StatTile label="현재 연봉" value={money(career.salary)} detail={`계약 ${career.contractYears}년 남음`}/>}
-        <StatTile label="최고 능력치" value={totals!.peakOverall} detail="커리어 최고 OVR"/>
+        <StatTile label="최고 OVR" value={totals!.peakOverall}/>
         {amateurOnly?<StatTile label="아마추어 출전 경기" value={amateurGames} detail="완료 시즌 누적"/>
           :<StatTile label="프로 출전 경기" value={totals!.g} detail={`${career.history.length}시즌 누적`}/>}
-        {amateurOnly?<StatTile label="드래프트" value={amateurProgress}/>
-          :<StatTile label="레거시 점수" value={career.hallScore} detail={`명예의 전당 기준 ${HALL_THRESHOLD}점`}/>}
+        {amateurOnly&&<StatTile label="드래프트" value={amateurProgress}/>}
       </div>
       {!career.history.length&&!amateur?.history.length&&<section className="panel">
         <div className="section-heading"><h2>시즌 기록</h2></div>
@@ -488,17 +655,29 @@ export default function GameApp(){
      </section>}
    </>)}
 
- {tab==="hall"&&<><div className="page-heading"><div><span className="eyebrow">THE GAME ENDS. THE LEGACY DOESN’T.</span><h1>기록을 넘어, 이름을 남기다.</h1></div><Trophy size={28} className="gold-icon"/></div><section className="hall-hero"><span className="hall-laurel">❧</span><span className="eyebrow">HALL OF FAME</span><h2>명예의 전당</h2><p>유니폼은 바뀌어도, 그라운드에 남긴 이야기는 영원합니다.</p><div className="hall-line"><span/><BrandBall size={26}/><span/></div>{career?.phase==="retired"?<div className="retirement-result"><Avatar avatar={career.player.avatar}/><span className="hall-result-badge">{career.retirement?.hallOfFame?"명예의 전당 헌액":"나의 커리어, 그 마지막 장"}</span><h3>{career.player.name}</h3><strong>{career.retirement?.title}</strong><p>{career.retirement?.summary}</p><div className="retirement-numbers"><span><b>{amateurOnly?amateur?.history.length:career.history.length}</b>시즌</span><span><b>{amateurOnly?amateurGames:totals?.g}</b>경기</span><span><b>{career.hallScore}</b>레거시 점수</span></div><button className="button gold-button" onClick={()=>start()}>새로운 전설 시작하기 <ArrowRight size={17}/></button></div>:<div className="hall-invitation"><Trophy size={52}/><h3>언젠가, 이곳에 당신의 이름이.</h3><p>오랜 활약과 특별한 기록, 수상의 순간이 모여 레거시가 됩니다.<br/>은퇴 후 명예의 전당에 도전해 보세요.</p>{career&&<div className="hall-progress"><span style={{width:`${Math.min(100,career.hallScore/HALL_THRESHOLD*100)}%`}}/></div>}{career&&<small>레거시 {career.hallScore} / {HALL_THRESHOLD}</small>}<button className="button gold-button" onClick={()=>career?go("season"):start()}>{career?"나의 커리어 이어가기":"첫 번째 발자국 남기기"}<ArrowRight size={17}/></button></div>}</section><section className="panel hall-archives"><div className="section-heading"><div><span className="eyebrow">MY LEGENDS</span><h2>나의 야구 인생들</h2></div><span className="muted small">보관한 커리어 요약</span></div>{archives.length?<div className="archive-grid">{archives.map(c=><article className="archive-card" key={c.id}><Avatar avatar={c.avatar} small/><div><small>{c.start} — {c.end}</small><h3>{c.name}</h3><p>{c.seasons}시즌 · {c.position} · {c.hall?"명예의 전당":"나만의 레거시"}</p></div><span className="archive-score">{c.score}<small>LEGACY</small></span></article>)}</div>:<div className="archive-empty"><Star size={23}/><p>첫 번째 야구 인생을 완성해 보세요.</p></div>}<p className="hall-footnote">게임 내 통합 명예의 전당으로, 실제 리그의 헌액 제도와 별도로 평가합니다.</p></section></>}
+ {tab==="hall"&&<><div className="page-heading"><div><span className="eyebrow">THE GAME ENDS. THE LEGACY DOESN’T.</span><h1>기록을 넘어, 이름을 남기다.</h1></div><Trophy size={28} className="gold-icon"/></div><section className="hall-hero"><span className="hall-laurel">❧</span><span className="eyebrow">HALL OF FAME</span><h2>명예의 전당</h2><p>유니폼은 바뀌어도, 그라운드에 남긴 이야기는 영원합니다.</p><div className="hall-line"><span/><BrandBall size={26}/><span/></div>{career?.phase==="retired"?<div className="retirement-result"><Avatar avatar={career.player.avatar}/><span className="hall-result-badge">{career.retirement?.hallOfFame?"명예의 전당 헌액":"나의 커리어, 그 마지막 장"}</span><h3>{career.player.name}</h3><strong>{career.retirement?.title}</strong><p>{career.retirement?.summary}</p><div className="retirement-numbers"><span><b>{amateurOnly?amateur?.history.length:career.history.length}</b>시즌</span><span><b>{amateurOnly?amateurGames:totals?.g}</b>경기</span><span><b>{totals?.peakOverall}</b>최고 OVR</span></div><button className="button gold-button" onClick={()=>start()}>새로운 전설 시작하기 <ArrowRight size={17}/></button></div>:<div className="hall-invitation"><Trophy size={52}/><h3>언젠가, 이곳에 당신의 이름이.</h3><p>오랜 활약과 특별한 기록, 수상의 순간이 모여 레거시가 됩니다.<br/>은퇴 후 명예의 전당에 도전해 보세요.</p>{totals&&<small>최고 OVR {totals.peakOverall}</small>}<button className="button gold-button" onClick={()=>career?go("season"):start()}>{career?"나의 커리어 이어가기":"첫 번째 발자국 남기기"}<ArrowRight size={17}/></button></div>}</section>
+ <section className="panel hall-archives">
+   <div className="section-heading">
+     <div><span className="eyebrow">MY LEGENDS</span><h2>나의 야구 인생들</h2></div>
+   </div>
+   {archives.length?<div className="archive-grid">{archives.map(c=><button type="button" className="archive-card" key={c.id} onClick={()=>openArchive(c)} aria-label={`${c.name} 기록 보기`}>
+     <Avatar avatar={c.avatar} small/>
+     <span className="archive-card-copy"><small>{c.start} — {c.end}</small><strong>{c.name}</strong><small>{c.seasons}시즌 · {c.position} · {c.hall?"명예의 전당":"나만의 레거시"}</small></span>
+     <span className="archive-score">{c.peakOverall??"—"}<small>OVR</small></span><ChevronRight size={18} aria-hidden="true"/>
+   </button>)}</div>:<div className="archive-empty"><Star size={23}/><p>첫 번째 야구 인생을 완성해 보세요.</p></div>}<p className="hall-footnote">게임 내 통합 명예의 전당으로, 실제 리그의 헌액 제도와 별도로 평가합니다.</p></section></>}
  <footer className="kickru-footer"><p>비 더 레전드</p><nav aria-label="게임 안내"><button onClick={()=>setGuide(true)}>게임 가이드</button><button onClick={()=>go("hall")}>명예의 전당</button><button onClick={()=>setSettings(true)}>저장 설정</button></nav><small>© 2026 · 구단·리그 명칭의 권리는 각 권리자에게 있습니다.</small></footer></>}
  </main></div><nav className="mobile-nav t-tabbar" aria-label="메뉴">{NAV.map(n=><button key={n.id} type="button" className={tab===n.id?"active":""} aria-current={tab===n.id?"page":undefined} onClick={()=>go(n.id)}><n.icon size={20} aria-hidden="true"/><span>{n.label}</span></button>)}</nav>
 
- {guide&&<Modal title="한 선수의 인생, 당신의 선택으로" onClose={()=>setGuide(false)}><div className="guide-steps">{[{n:"01",title:"나의 유니폼을 고르세요",text:"시작 국가와 고교 야구부 또는 아카데미를 고르고, 타자·투수와 육성 방향을 정해요."},{n:"02",title:"한 시즌을 살아보세요",text:"훈련과 운영 방식을 선택하고 시즌을 보내면 출전과 경기 기록, 성장과 이야기가 펼쳐집니다."},{n:"03",title:"드래프트에서 프로에 도전하세요",text:"고교·아카데미 과정을 마치고 지명되면 해당 구단에 입단해요. 미지명되면 합격한 대학을 골라 진학하고, 4학년까지 매 시즌 드래프트에 도전해요."},{n:"04",title:"당신만의 전설을 남기세요",text:"기록과 수상이 레거시 점수가 됩니다. 은퇴 후 게임 내 명예의 전당에 도전하세요. 어느 리그에 남아도 전설이 될 수 있어요."}].map(g=><div key={g.n}><span>{g.n}</span><div><h3>{g.title}</h3><p>{g.text}</p></div></div>)}</div><div className="guide-note"><Shield size={19}/><p>실제 학교·아카데미와 구단을 무대로 가상 선수가 활약합니다. 일정·드래프트·계약·등록·시상은 게임용으로 간소화했으며 실제 경기 결과와 무관합니다. 진행은 이 브라우저에 저장되고 설정에서 파일로 옮길 수 있어요.</p></div><button className="button primary wide-button" onClick={()=>setGuide(false)}>알겠어요, 플레이볼 <BrandBall size={19}/></button></Modal>}
- {settings&&<Modal title="나의 클럽하우스 설정" onClose={()=>setSettings(false)}><div className="settings-section"><h3>커리어를 안전하게 보관하세요</h3><p>진행은 이 브라우저에 자동 저장돼요. 다른 기기에서 이어 하려면 저장 파일을 옮겨 주세요.</p><div className="settings-buttons"><button className="button primary" onClick={exportSave} disabled={!career}><Download size={18}/> 파일로 저장</button><button className="button secondary" onClick={()=>importRef.current?.click()}><Upload size={18}/> 파일 불러오기</button></div></div><div className="settings-section"><h3>또 다른 야구 인생</h3><p>새 선수를 만들면 현재 커리어의 요약을 보관합니다. 상세 기록을 남기려면 먼저 파일로 저장하세요.</p><button className="button secondary" onClick={()=>{setSettings(false);start()}}><Plus size={18}/> 새로운 커리어 시작</button></div><div className="guide-note"><BookOpen size={18}/><p>구단·리그 명칭의 권리는 각 권리자에게 있습니다. 비공식 야구 커리어 시뮬레이션 · v1.0</p></div></Modal>}
+ {guide&&<Modal title="한 선수의 인생, 당신의 선택으로" onClose={()=>setGuide(false)}><div className="guide-steps">{[{n:"01",title:"나의 유니폼을 고르세요",text:"타자·투수를 고르고, 국적에 맞는 고교 야구부나 아카데미에서 시작해요."},{n:"02",title:"한 시즌을 살아보세요",text:"훈련과 운영 방식을 선택하고 시즌을 보내면 출전과 경기 기록, 성장과 이야기가 펼쳐집니다."},{n:"03",title:"드래프트에서 프로에 도전하세요",text:"고교·아카데미 과정을 마치고 지명되면 해당 구단에 입단해요. 미지명되면 합격한 대학을 골라 진학하고, 4학년까지 매 시즌 드래프트에 도전해요."},{n:"04",title:"당신만의 전설을 남기세요",text:"기록과 수상으로 명예의 전당에 도전하세요. 은퇴 후에는 커리어의 최고 OVR과 수상 내역을 확인할 수 있어요."}].map(g=><div key={g.n}><span>{g.n}</span><div><h3>{g.title}</h3><p>{g.text}</p></div></div>)}</div><div className="guide-note"><Shield size={19}/><p>실제 학교·아카데미와 구단을 무대로 가상 선수가 활약합니다. 일정·드래프트·계약·등록·시상은 게임용으로 간소화했으며 실제 경기 결과와 무관합니다. 진행은 이 브라우저에 저장되고 설정에서 파일로 옮길 수 있어요.</p></div><button className="button primary wide-button" onClick={()=>setGuide(false)}>알겠어요, 플레이볼 <BrandBall size={19}/></button></Modal>}
+ {settings&&<Modal title="나의 클럽하우스 설정" onClose={()=>setSettings(false)}><div className="settings-section"><h3>커리어를 안전하게 보관하세요</h3><p>진행은 이 브라우저에 자동 저장돼요. 다른 기기에서 이어 하려면 저장 파일을 옮겨 주세요.</p><div className="settings-buttons"><button className="button primary" onClick={exportSave} disabled={!career}><Download size={18}/> 파일로 저장</button><button className="button secondary" onClick={()=>importRef.current?.click()}><Upload size={18}/> 파일 불러오기</button></div></div><div className="settings-section"><h3>또 다른 야구 인생</h3><p>새 선수를 만들면 현재 커리어의 기록을 보관합니다. 명예의 전당에서 다시 볼 수 있어요.</p><button className="button secondary" onClick={()=>{setSettings(false);start()}}><Plus size={18}/> 새로운 커리어 시작</button></div><div className="guide-note"><BookOpen size={18}/><p>구단·리그 명칭의 권리는 각 권리자에게 있습니다. 비공식 야구 커리어 시뮬레이션 · v1.0</p></div></Modal>}
  {explore&&<Modal title={`${explore}, 당신이 뛸 무대`} onClose={()=>setExplore(null)} wide><div className="league-explore-head"><span>{getLeague(explore).flag}</span><div><h3>{getLeague(explore).name}</h3><p>{getLeague(explore).description}</p></div><strong>{teamsForLeague(explore).length}<small>CLUBS</small></strong></div><div className="team-explore-grid">{teamsForLeague(explore).map(t=><div key={t.id}><TeamMark id={t.id}/><span>{t.name}</span></div>)}</div><div className="explore-footer"><p>{career?"다른 리그 진출은 시즌 종료 후 계약 제안에서 선택할 수 있어요.":"아마추어 시즌을 마치고 첫 프로 계약에 도전해요."}</p><button className="button primary" onClick={()=>{const l=explore;setExplore(null);if(!career)start(l);else go("season")}}>{career?"나의 시즌으로":"아마추어부터 시작하기"}<ArrowRight size={18}/></button></div></Modal>}
+ {archiveSelection&&<ArchivedCareerDetails key={archiveSelection.summary.id} summary={archiveSelection.summary}
+   career={archiveSelection.career} loading={archiveSelection.loading} error={archiveSelection.error}
+   onClose={()=>setArchiveSelection(null)}/>}
  {detail&&<Modal title={`${detail.season.year} ${"affiliationId" in detail.season?"아마추어 ":""}시즌 상세 기록`} onClose={()=>setDetail(null)} wide>
    <SeasonDetail result={detail.season} initialView={detail.initialView} showDraft={!draft||reviewed||detail.season.year!==latestAmateurSeason?.year}/>
  </Modal>}
- {retiring&&<Modal title="유니폼을 내려놓을 준비가 됐나요?" onClose={()=>setRetiring(false)}><p className="retire-confirm">{pendingPostseason?"진행 중인 포스트시즌을 마무리하고 은퇴합니다. ":"지금까지의 기록으로 커리어를 마무리합니다. "}은퇴한 커리어는 보관함에 요약이 남고, 이어서 시즌을 진행할 수는 없어요.</p><div className="settings-buttons"><button className="button secondary" onClick={()=>setRetiring(false)}>아직 더 뛸래요</button><button className="button primary" onClick={retire}>은퇴하고 레거시 보기</button></div></Modal>}
+ {retiring&&<Modal title="유니폼을 내려놓을 준비가 됐나요?" onClose={()=>setRetiring(false)}><p className="retire-confirm">{pendingPostseason?"진행 중인 포스트시즌을 마무리하고 은퇴합니다. ":"지금까지의 기록으로 커리어를 마무리합니다. "}은퇴한 커리어의 상세 기록은 명예의 전당에 보관됩니다.</p><div className="settings-buttons"><button className="button secondary" onClick={()=>setRetiring(false)}>아직 더 뛸래요</button><button className="button primary" onClick={retire}>은퇴하고 레거시 보기</button></div></Modal>}
  {busy&&<Modal title="당신의 시즌이 펼쳐지고 있어요" onClose={()=>{}} locked><div className="sim-progress"><span className="spinning-ball"><BrandBall size={52}/></span><h3>{["스프링캠프의 문을 열어요","첫 타석, 첫 마운드를 지나","한 경기씩 기록을 쌓고 있어요","땀방울이 성장으로 바뀝니다","시즌의 마지막 페이지를 정리해요"][progress]}</h3><div className="sim-track"><i style={{width:`${Math.min(100,progress*25+8)}%`}}/></div><p>{career?.player.name} 선수의 {career?.year} 시즌</p></div></Modal>}
  {drafting&&draft&&<Modal title="드래프트 진행 중" onClose={()=>{}} locked>
    <div className="sim-progress">

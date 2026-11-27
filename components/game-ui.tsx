@@ -7,14 +7,31 @@ import {getCollegeAffiliation} from "@/lib/amateur-college";
 import {getAmateurMark} from "@/lib/amateur-marks";
 import {AVATAR_OPTIONS,DEFAULT_AVATAR_ID} from "@/lib/avatars";
 import {getCollegeMark} from "@/lib/college-marks";
+import type {PlayerRole} from "@/lib/game-types";
 import {getTeam} from "@/lib/leagues";
+
+export const PITCHING_DELIVERY_OPTIONS = [
+  { value: "좌투", arm: "좌완", slot: "오버" },
+  { value: "우투", arm: "우완", slot: "오버" },
+  { value: "우사", arm: "우완", slot: "사이드암" },
+  { value: "좌사", arm: "좌완", slot: "사이드암" },
+  { value: "우언", arm: "우완", slot: "언더" },
+  { value: "좌언", arm: "좌완", slot: "언더" },
+] as const;
+
+export function getPlayerHandLabel(role: PlayerRole, hand: string) {
+  if (role === "batter") return hand;
+  const delivery = PITCHING_DELIVERY_OPTIONS.find(option => option.value === hand);
+  return delivery ? `${delivery.arm} ${delivery.slot}` : hand;
+}
+
 export function BrandBall({size=27}:{size?:number}){return <svg width={size} height={size} viewBox="0 0 40 40" fill="none" aria-hidden="true"><circle cx="20" cy="20" r="17" stroke="currentColor" strokeWidth="2"/><path d="M8 7c15 5 15 21 0 26M32 7c-15 5-15 21 0 26" stroke="currentColor" strokeWidth="1.6"/><path d="m11 10-2 3m5 1-3 3m4 2-3 2m2 3-3 2m18-16 2 3m-5 1 3 3m-4 2 3 2m-2 3 3 2" stroke="currentColor" strokeWidth="1.4"/></svg>}
 export function TeamMark({id,large=false}:{id:string;large?:boolean}) {
   const [failedSrc, setFailedSrc] = useState<string>();
   const team = getTeam(id);
   const showLogo = failedSrc !== team.logoSrc;
   const size = large ? 48 : 32;
-  return <span className={`team-mark${large ? " large" : ""}${showLogo ? " has-logo" : ""}`}
+  return <span className={`team-mark${large ? " large" : ""}${showLogo ? " has-image" : ""}`}
     style={{"--team":team.color} as CSSProperties} aria-hidden="true">
     {showLogo
       ? <Image src={team.logoSrc} width={size} height={size} alt="" unoptimized onError={() => setFailedSrc(team.logoSrc)} />
@@ -45,8 +62,10 @@ export function Avatar({avatar=DEFAULT_AVATAR_ID,small=false}:{avatar?:number;sm
     const row = Math.floor(option.slot / 4);
     return <span className={`avatar avatar-atlas${sizeClass}`} role="img" aria-label={option.label}>
       <span className="avatar-sprite" style={{
-        backgroundImage: `url("${option.sheet}")`,
-        backgroundPosition: `${column / 3 * 100}% ${row / 3 * 100}%`,
+        backgroundImage: `url("${option.image ?? option.sheet}")`,
+        backgroundPosition: option.image ? "center" : `${column / 3 * 100}% ${row / (option.rows - 1) * 100}%`,
+        backgroundSize: option.image ? "contain" : `400% ${option.rows * 100}%`,
+        transform: option.mirrored ? "scaleX(-1)" : undefined,
       }} />
     </span>;
   }

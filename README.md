@@ -22,8 +22,8 @@ npm run build
 
 ## 플레이 흐름
 
-1. 타자 또는 투수를 고르고 해당 역할의 아바타를 선택한 뒤 이름·등번호·국적을 정합니다.
-2. 시작 국가를 정하고 한국·일본·대만·미국의 고교 야구부 또는 도미니카공화국·베네수엘라의 야구 아카데미를 고릅니다.
+1. 타자 또는 투수를 고르고 포지션이나 보직과 아바타를 선택한 뒤 이름과 국적을 정합니다.
+2. 국적에 따라 표시되는 한국·일본·대만·미국의 고교 야구부 또는 도미니카공화국·베네수엘라의 야구 아카데미를 고릅니다.
 3. 플레이 스타일과 집중 육성 능력치 최대 두 개를 선택합니다.
 4. 시즌 준비 화면에서 훈련과 시즌 운영을 정하고 시즌을 진행합니다.
 5. 성적·능력치 변화·주요 사건과 가상 언론·팬 반응을 확인합니다.
@@ -96,9 +96,23 @@ npm run build
 | MLB | AL·NL별 지구 우승 3팀과 와일드카드 3팀이 진출합니다. 1·2번 시드는 디비전 시리즈에 직행합니다. 와일드카드(3전), 디비전(5전), 리그 챔피언십·월드시리즈(7전)를 치릅니다. | [MLB 포스트시즌 포맷](https://www.mlb.com/news/mlb-playoff-format-faq) |
 | CPBL | 전·후반기 우승팀이 다르면 두 팀 중 연간 승률이 높은 팀이 대만시리즈에 직행하고, 다른 반기 우승팀은 챌린지에서 1승을 받습니다. 두 반기를 같은 팀이 우승하면 연간 2·3위가 챌린지에서 만나고, 반기 통합 우승팀은 대만시리즈에서 1승을 받습니다. | [CPBL 리그 규정](https://cpbl.com.tw/theme/client/download/%E8%81%AF%E7%9B%9F%E8%A6%8F%E7%AB%A0.pdf) |
 
-한 리그에서 완성한 커리어도 레거시로 평가합니다. 리그 간 이동 기회는 능력치·나이와 게임 내 계약 제안에 따라 열립니다. MLB MVP·사이영상 등 개인 타이틀과 우승, 통산 기록이 레거시 점수에 반영됩니다. 게임 내 명예의 전당 기준은 350점이며, 실제 쿠퍼스타운이나 각국의 헌액 제도와 별개입니다.
+한 리그에서 완성한 커리어도 명예의 전당 심사 대상입니다. 리그 간 이동 기회는 능력치·나이와 게임 내 계약 제안에 따라 열립니다. 개인 타이틀과 우승, 통산 기록을 게임 내 헌액 판정에 사용합니다. 커리어 화면과 보관함에는 아마추어·프로 시즌을 통틀어 최고 OVR을 표시합니다.
 
 경기 날짜와 정규시즌 편성, 일부 세부 동률 기준, 출전·부상·계약·등록·시상은 게임용으로 간소화했습니다. 게임 속 가상 기사와 팬 반응은 실제 보도가 아닙니다. 연봉은 UI에서 원화 만원 단위로 표시하는 게임 수치입니다.
+
+### MLB 이적 오퍼
+
+NPB·KBO·CPBL에서 MLB 오퍼를 받으려면 포스팅 또는 FA 자격을 갖추고, 시즌 종료 시 만 38세 이하이면서 OVR 72 이상이어야 합니다. 최근 프로 3시즌 중 가장 최근 시즌을 포함해 최소 2시즌을 현재 리그에서 뛰며 아래 정규시즌 성적 기준을 충족해야 합니다.
+
+| 소속 리그 | 타자 OPS | 선발 ERA | 불펜·마무리 ERA |
+| --- | ---: | ---: | ---: |
+| NPB | 1.000 이상 | 2.50 이하 | 2.25 이하 |
+| KBO | 1.050 이상 | 2.30 이하 | 2.05 이하 |
+| CPBL | 1.100 이상 | 2.10 이하 | 1.85 이하 |
+
+타자는 리그 경기 수의 2.8배 이상 타석에 들어서야 합니다. 투수는 WHIP 1.10 이하를 기록하고, 선발은 리그 경기 수의 2.7배 이상, 불펜·마무리는 0.9배 이상의 아웃을 잡아야 합니다.
+
+조건을 충족하면 한 구단이 제안합니다. 최근 3시즌 모두 기준을 충족하면 한 구단이 더 제안하고, 기준을 충족한 시즌에 MVP나 개인 기록 타이틀 등 신인왕을 제외한 리그 개인상을 받았다면 한 구단이 더 제안합니다.
 
 ## 엔진과 기록
 
@@ -107,6 +121,7 @@ npm run build
 - 투구 이닝은 소수 대신 아웃 수 정수로 저장합니다. 화면의 `5.2`는 5와 2/3이닝입니다.
 - 비율 기록은 누적 기록에서 계산합니다. 타석 수와 안타·홈런, 경기와 시즌 합계의 일관성을 검증합니다.
 - 성장에는 나이·남은 잠재력·육성·출전·건강과 시즌 운영을 반영합니다.
+- 기본 성장 계수는 26~30세 `0.07`, 31~32세 `0.065`, 33~34세 `0.05`, 35세 이후 `0.025`로 내려갑니다. 프로 정규시즌에 출전량과 성적 기준을 충족하면 남은 잠재력에 비례하는 성장 보너스를 받습니다. NPB·KBO·CPBL은 위의 MLB 이적 성적 기준을 사용하고, MLB는 OPS 0.950 이상 또는 선발 ERA 2.65 이하·불펜 ERA 2.40 이하와 WHIP 1.10 이하를 역할에 맞게 적용합니다. 잠재력이 98 이상이면 압도적인 시즌의 성장 보너스가 한 단계 더 커집니다.
 - 40세 시즌을 마친 프로 선수에게는 다음 시즌 계약 제안이 오지 않습니다. 비시즌 화면에서 **은퇴하기**를 선택하면 선수 생활을 마무리합니다.
 
 ### 트로피 캐비닛
@@ -119,12 +134,14 @@ npm run build
 
 - KBO 우승반지는 LG 트윈스 2023년 반지의 루비 테두리와 트로피 장식을 참고했습니다. [LG 전시](https://www.lg.co.kr/media/release/27455) · [우승반지 수여 사진](https://www.newsis.com/view/?id=NISI20240323_0020277514&pc_view=1) · [MVP·신인상](https://www.koreabaseball.com/MediaNews/News/KboPhoto/View.aspx?bdSe=515169) · [기록상](https://www.koreabaseball.com/MediaNews/News/KboPhoto/View.aspx?bdSe=515179) · [골든글러브 제작사](https://myfacestory.net/product/detail.html?cate_no=133&display_group=1&product_no=1272)
 - NPB 우승반지는 소프트뱅크 호크스 2011년 반지의 화이트골드와 노란 시트린을 참고했습니다. [반지 제작사](https://philip-collegering.com/japan_championrings/) · [NPB 시상식](https://npb.jp/news/detail/20251126_02.html) · [미쓰이 골든글러브 제작](https://mgg.mitsuipr.com/report/2012/hyosho.html)
-- MLB 우승반지는 LA 다저스 2024년 반지의 옐로골드와 파란 사파이어를 참고했습니다. [Jostens 우승반지](https://www.jostens.com/about/press-center/jostens-honors-the-los-angeles-dodgers-and-their-eighth-world-series-victory-with-a-spectacular-ring) · [MLB MVP 시상식](https://www.mlb.com/video/shohei-ohtani-receives-al-mvp) · [사이영상 시상](https://www.mlb.com/news/sandy-alcantara-receives-official-2023-nl-cy-young-award) · [신인왕 상패](https://x.com/baseballhall/status/1855325795557797940) · [Rawlings 골드글러브](https://www.prnewswire.com/news-releases/2022-rawlings-gold-glove-award-winners-revealed-301665447.html) · [타격왕](https://www.mlb.com/news/tony-gwynn-rod-carew-worthy-of-new-honors-c189734278) · [최우수 불펜](https://www.mlb.com/press-release/press-release-emmanuel-clase-edwin-diaz-earn-the-2022-rivera-and-hoffman-awards)
+- MLB 우승반지는 LA 다저스의 2024년 반지를 참고한 금색 바탕에, 우승 당시 구단의 공식 로고와 대표색을 입힙니다. [Jostens 우승반지](https://www.jostens.com/about/press-center/jostens-honors-the-los-angeles-dodgers-and-their-eighth-world-series-victory-with-a-spectacular-ring) · [MLB MVP 시상식](https://www.mlb.com/video/shohei-ohtani-receives-al-mvp) · [사이영상 시상](https://www.mlb.com/news/sandy-alcantara-receives-official-2023-nl-cy-young-award) · [신인왕 상패](https://x.com/baseballhall/status/1855325795557797940) · [Rawlings 골드글러브](https://www.prnewswire.com/news-releases/2022-rawlings-gold-glove-award-winners-revealed-301665447.html) · [타격왕](https://www.mlb.com/news/tony-gwynn-rod-carew-worthy-of-new-honors-c189734278) · [최우수 불펜](https://www.mlb.com/press-release/press-release-emmanuel-clase-edwin-diaz-earn-the-2022-rivera-and-hoffman-awards)
 - CPBL 우승반지는 웨이취안 드래곤스 2023년 반지의 붉은 W 장식을 참고했습니다. [CPBL 증정식](https://www.youtube.com/watch?v=Qo_ioGG9IFc) · [우승반지 실물 사진](https://tsna.com/article/85568) · [개인상 전시 사진](https://tccho.wingzero.tw/?p=2099) · [CPBL 골든글러브 공개](https://cpbl.com.tw/xmdoc/cont?sid=0L132507024067806309)
 
 ## 저장
 
 진행 상황은 플레이 중인 브라우저의 localStorage에 자동 저장합니다. 설정에서 JSON 파일로 저장하거나 파일을 불러와 다른 기기로 옮길 수 있습니다. 브라우저 데이터 삭제와 저장 공간 제한에 대비해 중요한 커리어는 파일로 보관하세요.
+
+다른 선수로 바꾸거나 은퇴하면 명예의 전당에 커리어 기록을 자동으로 보관합니다. **나의 야구 인생들**의 선수 카드를 누르면 아마추어·프로 시즌과 경기별 성적, 트로피 캐비닛을 확인할 수 있습니다. 상세 기록은 같은 브라우저의 IndexedDB에 저장합니다. 요약 데이터만 저장된 이전 커리어의 카드는 남아 있는 요약을 표시합니다.
 
 현재 버전에는 계정 간 클라우드 동기화나 공개 온라인 랭킹이 없습니다. 저장 파일은 형식·숫자 범위·구단·시즌 합계와 경기별 기록을 확인한 뒤 읽습니다. 직접 수정한 클라이언트 기록을 공인 성적으로 인증하는 시스템은 아닙니다.
 
@@ -141,4 +158,4 @@ npm run build
 - `lib/leagues.ts`: 네 리그와 구단 데이터, 공식 데이터 출처
 - `public/`: 오리지널 SVG 야구장·선수 일러스트와 아이콘
 
-게임의 프로 구단 58곳에는 공식 로고를 사용합니다. 이미지 출처는 [KBO](https://www.koreabaseball.com/), [NPB 구단 안내](https://npb.jp/teams/), [MLB 구단 안내](https://www.mlb.com/team), [CPBL 공식 기록 사이트](https://stats.cpbl.com.tw/players?playerName=CSPL)입니다. 구단·리그 명칭과 교표·로고의 권리는 각 권리자에게 있습니다.
+게임의 프로 구단 58곳에는 공식 로고를 사용합니다. 이미지 출처는 [KBO](https://www.koreabaseball.com/), [NPB 구단 안내](https://npb.jp/teams/), [닛폰햄 구단 공식 로고 공개](https://www.fighters.co.jp/news/detail/00003761.html), [MLB 구단 안내](https://www.mlb.com/team), [CPBL 공식 기록 사이트](https://stats.cpbl.com.tw/players?playerName=CSPL)입니다. 구단·리그 명칭과 교표·로고의 권리는 각 권리자에게 있습니다.

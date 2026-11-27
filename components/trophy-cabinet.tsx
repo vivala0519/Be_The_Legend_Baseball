@@ -1,15 +1,30 @@
 "use client";
 
 import Image from "next/image";
-import { useId, useState } from "react";
+import { useId, useState, type CSSProperties } from "react";
 import { Trophy } from "lucide-react";
 import { getAwardTrophy } from "@/lib/award-trophies";
 import { POSTSEASON_CHAMPIONSHIP_AWARD, isPostseasonChampionshipAward, type Award, type LeagueId } from "@/lib/game-types";
-import { LEAGUES } from "@/lib/leagues";
+import { getTeam, LEAGUES } from "@/lib/leagues";
+
+function getMlbRingTeam({ teamId }: Award) {
+  const team = teamId ? getTeam(teamId) : undefined;
+  return team?.leagueId === "MLB" ? team : undefined;
+}
 
 function AwardTrophyIcon({ award }: { award: Award }) {
-  return <Image className="award-trophy-icon" src={`/award-trophies-3d/${getAwardTrophy(award)}.webp`}
-    width={50} height={60} alt="" unoptimized />;
+  const src = `/award-trophies-3d/${getAwardTrophy(award)}.webp`;
+  if (award.leagueId === "MLB" && isPostseasonChampionshipAward(award.name)) {
+    const team = getMlbRingTeam(award);
+    return <span className="award-trophy-icon mlb-championship-ring"
+      style={team ? { "--ring-team-color": team.color } as CSSProperties : undefined}>
+      <Image src={src} width={50} height={60} alt="" unoptimized />
+      <span className="mlb-championship-ring-face">
+        {team ? <Image src={team.logoSrc} width={26} height={26} alt="" unoptimized /> : <Trophy size={14} />}
+      </span>
+    </span>;
+  }
+  return <Image className="award-trophy-icon" src={src} width={50} height={60} alt="" unoptimized />;
 }
 
 export function TrophyCabinet({ awards }: { awards: readonly Award[] }) {
@@ -45,6 +60,7 @@ export function TrophyCabinet({ awards }: { awards: readonly Award[] }) {
           {Array.from(leagueTitles, ([name, group], index) => {
             const expanded = selected?.leagueId === id && selected.name === name;
             const captionId = `${headingId}-${index}`;
+            const showMlbTeams = id === "MLB" && name === POSTSEASON_CHAMPIONSHIP_AWARD;
 
             return <div key={name} className="award-card">
               <button type="button" className="award-stack" aria-expanded={expanded} aria-controls={captionId}
@@ -57,7 +73,10 @@ export function TrophyCabinet({ awards }: { awards: readonly Award[] }) {
               <div id={captionId} className="award-caption" hidden={!expanded}>
                 {expanded && <>
                   <strong>{name}</strong>
-                  <small>{group.map(award => award.year).sort((a, b) => b - a).map(year => `${year}년`).join(" · ")}</small>
+                  <small>{[...group].sort((a, b) => b.year - a.year).map(award => {
+                    const team = showMlbTeams ? getMlbRingTeam(award) : undefined;
+                    return team ? `${award.year}년 ${team.name}` : `${award.year}년`;
+                  }).join(" · ")}</small>
                 </>}
               </div>
             </div>;

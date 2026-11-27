@@ -4,13 +4,16 @@ import type { PostseasonBracket, PostseasonStanding } from './pro-postseason';
 
 export type LeagueId = 'KBO' | 'NPB' | 'MLB' | 'CPBL';
 export type PlayerRole = 'batter' | 'pitcher';
+export const DEFAULT_HAND_BY_ROLE = { batter: '좌타', pitcher: '좌투' } as const;
+export const MAX_NEW_PLAYER_NAME_LENGTH = 9;
 export type GamePlan = 'balanced' | 'aggressive' | 'rest';
 export type Attributes = Record<string, number>;
 
 export interface Player {
-  name: string; number: number; avatar: number; role: PlayerRole; position: string;
+  name: string; avatar: number; role: PlayerRole; position: string;
   hand: string; nationality: string; age: number; attributes: Attributes;
   potential: number; style: string;
+  eliteGrowthCarry?: Partial<Attributes>;
 }
 
 export interface Stats {
@@ -99,7 +102,7 @@ export const POSTSEASON_CHAMPIONSHIP_AWARD = '포스트시즌 우승';
 export function isPostseasonChampionshipAward(name: string): boolean {
   return name === POSTSEASON_CHAMPIONSHIP_AWARD || name === '리그 우승';
 }
-export interface Award { year: number; leagueId: LeagueId; name: string }
+export interface Award { year: number; leagueId: LeagueId; name: string; teamId?: string }
 export interface Offer {
   id: string; leagueId: LeagueId; teamId: string; salary: number; years: number;
   role: string; description: string; isCurrent: boolean;
@@ -142,7 +145,7 @@ export type ProfessionalCareer = CareerState & {
 export type Career = ActiveAmateurCareer | RetiredAmateurCareer | ProfessionalCareer;
 
 interface CreatePlayerInput {
-  name: string; number?: number; avatar?: number; role: PlayerRole; position?: string;
+  name: string; avatar?: number; role: PlayerRole; position?: string;
   hand?: string; nationality?: string;
   style?: string; training?: string[]; seed?: number;
 }

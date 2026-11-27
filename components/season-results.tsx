@@ -292,10 +292,11 @@ function PostseasonDetail({ postseason, teamId, batter }: { postseason: ProPosts
   </>;
 }
 
-export function SeasonDetail({ result: s, showDraft = true, initialView = "regular" }: {
+export function SeasonDetail({ result: s, showDraft = true, initialView = "regular", showAllGames = false }: {
   result: PlayedSeason;
   showDraft?: boolean;
   initialView?: "regular" | "postseason";
+  showAllGames?: boolean;
 }) {
   const batter = s.role === "batter";
   const team = seasonTeam(s);
@@ -305,9 +306,10 @@ export function SeasonDetail({ result: s, showDraft = true, initialView = "regul
   const competitions = competitionResultsOf(s);
   const [view, setView] = useState(initialView);
   const [selectedCompetition, setSelectedCompetition] = useState("");
-  const recentGames = (selectedCompetition
+  const games = selectedCompetition
     ? s.games.filter(game => game.competitionId === selectedCompetition)
-    : s.games.filter(game => game.stats.g > 0).slice(-15)).reverse();
+    : showAllGames ? s.games.slice() : s.games.filter(game => game.stats.g > 0).slice(-15);
+  games.reverse();
 
   return <div className="season-detail">
     <div className="detail-player">
@@ -326,7 +328,7 @@ export function SeasonDetail({ result: s, showDraft = true, initialView = "regul
     </div>}
     {!amateur && postseason && view === "postseason" ? <PostseasonDetail postseason={postseason} teamId={s.teamId} batter={batter} /> : <>
       <PlayerStats stats={s.stats} batter={batter} injuredGames={s.injuredGames} />
-      <h3>경기별 기록 {!selectedCompetition && <small>최근 출전 15경기</small>}</h3>
+      <h3>경기별 기록 {!showAllGames && !selectedCompetition && <small>최근 출전 15경기</small>}</h3>
       {competitions && <label className="season-game-filter">
         대회
         <select value={selectedCompetition} onChange={event => setSelectedCompetition(event.target.value)}>
@@ -334,7 +336,7 @@ export function SeasonDetail({ result: s, showDraft = true, initialView = "regul
           {competitions.map(({ id }) => <option key={id} value={id}>{getAmateurCompetition(id)?.name}</option>)}
         </select>
       </label>}
-      {recentGames.length > 0 ? <PlayerGameTable games={recentGames} batter={batter} amateur={amateur} />
+      {games.length > 0 ? <PlayerGameTable games={games} batter={batter} amateur={amateur} />
         : <p className="muted">{selectedCompetition ? "이번 시즌에 치른 대회 경기가 없어요." : "이번 시즌에는 출전한 경기 기록이 없어요."}</p>}
     </>}
     {!batter && <p className="muted small">이닝의 소수점 뒤 숫자는 아웃 수예요. 5.2이닝은 5와 2/3이닝을 뜻합니다.</p>}
